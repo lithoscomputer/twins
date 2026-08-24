@@ -29,6 +29,14 @@ twin-openai = { git = "https://github.com/lithoscomputer/twins", rev = "<commit-
 The library exports an Axum router through `build_app()` and
 `build_app_with_config()`.
 
+## Release platforms
+
+Each release includes binaries for:
+
+- macOS ARM64
+- Linux x86_64
+- Linux ARM64
+
 ## Development
 
 ```bash

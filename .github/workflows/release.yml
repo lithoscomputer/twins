@@ -12,21 +12,49 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-15
+            platform: darwin-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - run: cargo build --release --locked -p twin-openai
+      - name: Smoke test binary
+        shell: bash
+        run: |
+          TWIN_OPENAI_BIND_ADDR=127.0.0.1:43471 target/release/twin-openai > server.log 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" >/dev/null 2>&1 || true
+            wait "$server_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          response=""
+          for _ in {1..50}; do
+            if response="$(curl --silent --fail http://127.0.0.1:43471/healthz 2>/dev/null)"; then
+              break
+            fi
+            sleep 0.1
+          done
+
+          if [[ "$response" != '{"status":"ok"}' ]]; then
+            cat server.log
+            exit 1
+          fi
       - name: Package binary
         shell: bash
         run: |
-          platform="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
           mkdir -p dist
           cp target/release/twin-openai dist/twin-openai
-          tar -C dist -czf "twin-openai-${platform}.tar.gz" twin-openai
+          tar -C dist -czf "twin-openai-${{ matrix.platform }}.tar.gz" twin-openai
       - uses: actions/upload-artifact@v7
         with:
-          name: twin-openai-${{ matrix.os }}
+          name: twin-openai-${{ matrix.platform }}
           path: twin-openai-*.tar.gz
 
   release:
