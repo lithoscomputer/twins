@@ -1,0 +1,47 @@
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - "twin-openai-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release --locked -p twin-openai
+      - name: Package binary
+        shell: bash
+        run: |
+          platform="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+          mkdir -p dist
+          cp target/release/twin-openai dist/twin-openai
+          tar -C dist -czf "twin-openai-${platform}.tar.gz" twin-openai
+      - uses: actions/upload-artifact@v4
+        with:
+          name: twin-openai-${{ matrix.os }}
+          path: twin-openai-*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd artifacts
+          sha256sum *.tar.gz > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" ./* --generate-notes
