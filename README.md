@@ -40,6 +40,13 @@ Each release includes binaries for:
 Linux binaries target GLIBC 2.35, the baseline provided by Ubuntu 22.04. The
 release workflow rejects binaries that require a newer GLIBC version.
 
+Release archives include GitHub build-provenance attestations. Verify a
+downloaded archive with:
+
+```bash
+gh attestation verify twin-openai-linux-x86_64.tar.gz --repo lithoscomputer/twins
+```
+
 ## Development
 
 ```bash
