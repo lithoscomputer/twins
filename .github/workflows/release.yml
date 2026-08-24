@@ -13,9 +13,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-24.04
+          - os: ubuntu-22.04
             platform: linux-x86_64
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-22.04-arm
             platform: linux-arm64
           - os: macos-15
             platform: darwin-arm64
@@ -23,6 +23,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: cargo build --release --locked -p twin-openai
+      - name: Verify GLIBC compatibility
+        if: startsWith(matrix.platform, 'linux-')
+        shell: bash
+        run: |
+          required_versions="$(
+            readelf --version-info target/release/twin-openai |
+              sed -nE 's/.*Name: GLIBC_([0-9.]+).*/\1/p'
+          )"
+          max_required="$(printf '%s\n' "$required_versions" | sort -V | tail -n 1)"
+
+          if [[ -z "$max_required" ]]; then
+            echo "Could not determine the binary's GLIBC requirement."
+            exit 1
+          fi
+
+          if [[ "$(printf '%s\n' "$max_required" "2.35" | sort -V | tail -n 1)" != "2.35" ]]; then
+            echo "Binary requires GLIBC $max_required, newer than the 2.35 limit."
+            exit 1
+          fi
+
+          echo "Maximum required GLIBC version: $max_required"
       - name: Smoke test binary
         shell: bash
         run: |

@@ -37,6 +37,9 @@ Each release includes binaries for:
 - Linux x86_64
 - Linux ARM64
 
+Linux binaries target GLIBC 2.35, the baseline provided by Ubuntu 22.04. The
+release workflow rejects binaries that require a newer GLIBC version.
+
 ## Development
 
 ```bash
