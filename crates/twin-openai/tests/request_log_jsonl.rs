@@ -44,8 +44,16 @@ fn request_records_stream_to_jsonl_without_bearer_tokens() {
     let state = AppState::new(config(&path)).expect("state should open request log");
     let namespace = NamespaceKey::Bearer("super-secret-test-token".to_owned());
 
-    state.log_request(&namespace, request("responses", "first request"));
-    state.log_request(&namespace, request("chat.completions", "second request"));
+    state.log_request(
+        &namespace,
+        request("responses", "first request"),
+        Some("first-scenario".to_owned()),
+    );
+    state.log_request(
+        &namespace,
+        request("chat.completions", "second request"),
+        None,
+    );
 
     let contents = fs::read_to_string(&path).expect("request log should be readable");
     let records = contents
@@ -53,10 +61,12 @@ fn request_records_stream_to_jsonl_without_bearer_tokens() {
         .map(|line| serde_json::from_str::<Value>(line).expect("line should contain valid JSON"))
         .collect::<Vec<_>>();
     assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["scenario_id"], "first-scenario");
     assert_eq!(records[0]["endpoint"], "responses");
     assert_eq!(records[0]["input_text"], "first request");
     assert_eq!(records[1]["endpoint"], "chat.completions");
     assert_eq!(records[1]["input_text"], "second request");
+    assert!(records[1].get("scenario_id").is_none());
     assert!(!contents.contains("super-secret-test-token"));
     assert_eq!(state.request_logs(&namespace).len(), 2);
 
@@ -74,7 +84,11 @@ fn request_log_is_truncated_when_state_starts() {
         fs::read_to_string(&path).expect("request log should be readable"),
         ""
     );
-    state.log_request(&NamespaceKey::Global, request("responses", "fresh request"));
+    state.log_request(
+        &NamespaceKey::Global,
+        request("responses", "fresh request"),
+        None,
+    );
     let contents = fs::read_to_string(&path).expect("request log should be readable");
     assert!(!contents.contains("stale record"));
     assert!(contents.contains("fresh request"));

@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::engine::scenario::{RequestContext, Scenario};
+use crate::engine::scenario::{validate_scenario_ids, RequestContext, Scenario};
 use crate::logs::RequestLog;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -42,6 +42,7 @@ pub struct NamespaceSnapshot {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ScenarioSnapshot {
+    pub scenario_id: Option<String>,
     pub endpoint: String,
     pub model: Option<String>,
     pub stream: Option<bool>,
@@ -110,15 +111,16 @@ impl AppState {
         response_id
     }
 
-    pub fn enqueue_scenarios(&self, namespace: &NamespaceKey, mut scenarios: Vec<Scenario>) {
-        self.inner
-            .namespaces
-            .lock()
-            .expect("namespaces lock")
-            .entry(namespace.clone())
-            .or_default()
-            .scenarios
-            .append(&mut scenarios);
+    pub fn enqueue_scenarios(
+        &self,
+        namespace: &NamespaceKey,
+        mut scenarios: Vec<Scenario>,
+    ) -> Result<(), String> {
+        let mut namespaces = self.inner.namespaces.lock().expect("namespaces lock");
+        let namespace_state = namespaces.entry(namespace.clone()).or_default();
+        validate_scenario_ids(namespace_state.scenarios.iter().chain(scenarios.iter()))?;
+        namespace_state.scenarios.append(&mut scenarios);
+        Ok(())
     }
 
     pub fn take_matching_scenario(
@@ -134,8 +136,14 @@ impl AppState {
         Some(scenarios.remove(position))
     }
 
-    pub fn log_request(&self, namespace: &NamespaceKey, request: RequestContext) {
+    pub fn log_request(
+        &self,
+        namespace: &NamespaceKey,
+        request: RequestContext,
+        scenario_id: Option<String>,
+    ) {
         let request_log = RequestLog {
+            scenario_id,
             endpoint: request.endpoint,
             model: request.model,
             stream: request.stream,
@@ -193,6 +201,7 @@ impl AppState {
                     .scenarios
                     .iter()
                     .map(|s| ScenarioSnapshot {
+                        scenario_id: s.scenario_id.clone(),
                         endpoint: s.matcher.endpoint.clone(),
                         model: s.matcher.model.clone(),
                         stream: s.matcher.stream,

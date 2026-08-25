@@ -10,6 +10,7 @@ async fn admin_loaded_scenarios_are_consumed_fifo() {
         .enqueue_scenarios(json!({
             "scenarios": [
                 {
+                    "scenario_id": "first-response",
                     "matcher": { "endpoint": "responses", "model": "gpt-test", "stream": false },
                     "script": { "kind": "success", "response_text": "first scripted response" }
                 },
@@ -55,6 +56,9 @@ async fn admin_loaded_scenarios_are_consumed_fifo() {
 
     let logs = server.request_logs().await;
     assert_eq!(logs["requests"].as_array().expect("request logs").len(), 3);
+    assert_eq!(logs["requests"][0]["scenario_id"], "first-response");
+    assert!(logs["requests"][1].get("scenario_id").is_none());
+    assert!(logs["requests"][2].get("scenario_id").is_none());
 
     server.reset().await;
     let logs_after_reset = server.request_logs().await;
@@ -65,6 +69,29 @@ async fn admin_loaded_scenarios_are_consumed_fifo() {
             .len(),
         0
     );
+}
+
+#[tokio::test]
+async fn scenario_ids_must_be_non_empty_and_unique() {
+    let server = common::spawn_server().await.expect("server should start");
+
+    for scenario_ids in [["duplicate", "duplicate"], ["", "second"]] {
+        let response = server
+            .auth_client
+            .post(format!("{}/__admin/scenarios", server.base_url))
+            .json(&json!({
+                "scenarios": scenario_ids.map(|scenario_id| json!({
+                    "scenario_id": scenario_id,
+                    "matcher": { "endpoint": "responses" },
+                    "script": { "kind": "success" }
+                }))
+            }))
+            .send()
+            .await
+            .expect("admin request should complete");
+
+        assert_eq!(response.status(), 400);
+    }
 }
 
 #[tokio::test]

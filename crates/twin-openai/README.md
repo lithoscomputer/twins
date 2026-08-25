@@ -27,7 +27,9 @@ Set `TWIN_OPENAI_REQUEST_LOG_PATH` to stream normalized request records to a
 JSONL file. The server creates or truncates the file at startup and flushes
 each record immediately. Each line uses the same shape as an item in the
 `requests` array from `GET /__admin/requests` and never includes bearer tokens.
-The in-memory admin request log remains available when JSONL output is enabled.
+When a scripted scenario with a `scenario_id` matches, the request record
+includes that ID. The in-memory admin request log remains available when JSONL
+output is enabled.
 
 Available release binaries are attached to tags named
 `twin-openai-v<version>` in GitHub Releases.
@@ -46,12 +48,16 @@ curl -X POST http://127.0.0.1:3000/__admin/scenarios \
   -d '{
     "scenarios": [
       {
+        "scenario_id": "first-response",
         "matcher": { "endpoint": "responses", "model": "gpt-test", "stream": false },
         "script": { "kind": "success", "response_text": "scripted reply" }
       }
     ]
   }'
 ```
+
+`scenario_id` is optional. Non-empty IDs must be unique within the active
+scenario queue for a namespace.
 
 Inspect normalized request logs:
 

@@ -26,9 +26,16 @@ pub fn execute_responses_request(
         input_text: request.extract_user_text(),
         instructions_text: request.extract_instruction_text(),
     };
-    state.log_request(namespace, context.clone());
+    let scenario = state.take_matching_scenario(namespace, &context);
+    state.log_request(
+        namespace,
+        context,
+        scenario
+            .as_ref()
+            .and_then(|scenario| scenario.scenario_id.clone()),
+    );
 
-    if let Some(scenario) = state.take_matching_scenario(namespace, &context) {
+    if let Some(scenario) = scenario {
         return match scenario.execute_for_responses(state.next_response_id(namespace), request) {
             ExecutionOutcome::Success(success) => Ok(ExecutionOutcome::Success(
                 enforce_tool_choice(request.tool_choice_mode(), success)?,
@@ -60,9 +67,16 @@ pub fn execute_chat_request(
         input_text: request.extract_user_text(),
         instructions_text: request.extract_instruction_text(),
     };
-    state.log_request(namespace, context.clone());
+    let scenario = state.take_matching_scenario(namespace, &context);
+    state.log_request(
+        namespace,
+        context,
+        scenario
+            .as_ref()
+            .and_then(|scenario| scenario.scenario_id.clone()),
+    );
 
-    if let Some(scenario) = state.take_matching_scenario(namespace, &context) {
+    if let Some(scenario) = scenario {
         return match scenario.execute_for_chat(state.next_response_id(namespace), request) {
             ExecutionOutcome::Success(success) => Ok(ExecutionOutcome::Success(
                 enforce_tool_choice(request.tool_choice_mode(), success)?,

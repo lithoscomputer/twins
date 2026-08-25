@@ -26,7 +26,11 @@ async fn load_scenarios(
         Err(response) => return response,
     };
 
-    state.enqueue_scenarios(&namespace, payload.scenarios);
+    if let Err(message) = state.enqueue_scenarios(&namespace, payload.scenarios) {
+        return crate::openai::models::OpenAiError::invalid_request("scenarios", &message)
+            .into_response()
+            .into_response();
+    }
     Json(json!({ "status": "ok" })).into_response()
 }
 

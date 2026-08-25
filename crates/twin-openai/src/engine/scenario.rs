@@ -1,6 +1,7 @@
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashSet;
 
 use super::failures::{ErrorOutcome, ExecutionOutcome, SuccessOutcome, TransportOptions};
 use super::plan::{ResponsePlan, TokenUsage, ToolCallPlan};
@@ -13,6 +14,7 @@ pub struct ScenarioEnvelope {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Scenario {
+    pub scenario_id: Option<String>,
     pub matcher: ScenarioMatcher,
     pub script: ScenarioScript,
 }
@@ -228,6 +230,24 @@ impl Scenario {
             },
         }
     }
+}
+
+pub fn validate_scenario_ids<'a>(
+    scenarios: impl IntoIterator<Item = &'a Scenario>,
+) -> Result<(), String> {
+    let mut scenario_ids = HashSet::new();
+    for scenario in scenarios {
+        let Some(scenario_id) = scenario.scenario_id.as_deref() else {
+            continue;
+        };
+        if scenario_id.trim().is_empty() {
+            return Err("scenario_id must not be empty".to_owned());
+        }
+        if !scenario_ids.insert(scenario_id) {
+            return Err(format!("duplicate scenario_id: {scenario_id}"));
+        }
+    }
+    Ok(())
 }
 
 fn build_plan_from_script(
