@@ -5,6 +5,7 @@ fn config_loads_from_environment() {
     let config = Config::from_lookup(&|name| match name {
         "TWIN_OPENAI_BIND_ADDR" => Some("127.0.0.1:4100".to_string()),
         "TWIN_OPENAI_REQUIRE_AUTH" | "TWIN_OPENAI_ENABLE_ADMIN" => Some("false".to_string()),
+        "TWIN_OPENAI_REQUEST_LOG_PATH" => Some("tmp/requests.jsonl".to_string()),
         _ => None,
     })
     .expect("config should load");
@@ -12,4 +13,8 @@ fn config_loads_from_environment() {
     assert_eq!(config.bind_addr.to_string(), "127.0.0.1:4100");
     assert!(!config.require_auth);
     assert!(!config.enable_admin);
+    assert_eq!(
+        config.request_log_path.as_deref(),
+        Some(std::path::Path::new("tmp/requests.jsonl"))
+    );
 }

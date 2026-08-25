@@ -16,6 +16,6 @@ async fn main() -> Result<()> {
 
     let config = Config::from_env()?;
     let listener = TcpListener::bind(config.bind_addr).await?;
-    axum::serve(listener, app::router(AppState::new(config))).await?;
+    axum::serve(listener, app::router(AppState::new(config)?)).await?;
     Ok(())
 }

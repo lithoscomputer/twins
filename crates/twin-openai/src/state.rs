@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufWriter, Write};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -55,6 +59,12 @@ pub struct AppState {
 #[derive(Debug)]
 struct AppStateInner {
     namespaces: Mutex<HashMap<NamespaceKey, NamespaceState>>,
+    request_log_writer: Option<Mutex<JsonlRequestLogWriter>>,
+}
+
+#[derive(Debug)]
+struct JsonlRequestLogWriter {
+    writer: BufWriter<File>,
 }
 
 #[derive(Debug)]
@@ -75,13 +85,21 @@ impl Default for NamespaceState {
 }
 
 impl AppState {
-    pub fn new(config: Config) -> Self {
-        Self {
+    pub fn new(config: Config) -> Result<Self> {
+        let request_log_writer = config
+            .request_log_path
+            .as_deref()
+            .map(JsonlRequestLogWriter::open)
+            .transpose()?
+            .map(Mutex::new);
+
+        Ok(Self {
             config,
             inner: Arc::new(AppStateInner {
                 namespaces: Mutex::new(HashMap::new()),
+                request_log_writer,
             }),
-        }
+        })
     }
 
     pub fn next_response_id(&self, namespace: &NamespaceKey) -> u64 {
@@ -117,6 +135,20 @@ impl AppState {
     }
 
     pub fn log_request(&self, namespace: &NamespaceKey, request: RequestContext) {
+        let request_log = RequestLog {
+            endpoint: request.endpoint,
+            model: request.model,
+            stream: request.stream,
+            input_text: request.input_text,
+            instructions_text: request.instructions_text,
+            metadata: request.metadata,
+        };
+        let mut request_log_writer = self.inner.request_log_writer.as_ref().map(|writer| {
+            writer
+                .lock()
+                .expect("request JSONL writer lock should not be poisoned")
+        });
+
         self.inner
             .namespaces
             .lock()
@@ -124,14 +156,13 @@ impl AppState {
             .entry(namespace.clone())
             .or_default()
             .request_logs
-            .push(RequestLog {
-                endpoint: request.endpoint,
-                model: request.model,
-                stream: request.stream,
-                input_text: request.input_text,
-                instructions_text: request.instructions_text,
-                metadata: request.metadata,
-            });
+            .push(request_log.clone());
+
+        if let Some(writer) = request_log_writer.as_mut() {
+            if let Err(error) = writer.write_record(&request_log) {
+                tracing::error!(%error, "failed to append twin-openai request JSONL record");
+            }
+        }
     }
 
     pub fn request_logs(&self, namespace: &NamespaceKey) -> Vec<RequestLog> {
@@ -174,5 +205,47 @@ impl AppState {
             });
         }
         DebugSnapshot { namespaces: result }
+    }
+}
+
+impl JsonlRequestLogWriter {
+    fn open(path: &Path) -> Result<Self> {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create twin-openai request log directory {}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(path)
+            .with_context(|| {
+                format!(
+                    "failed to create twin-openai request log {}",
+                    path.display()
+                )
+            })?;
+        Ok(Self {
+            writer: BufWriter::new(file),
+        })
+    }
+
+    fn write_record(&mut self, request: &RequestLog) -> Result<()> {
+        serde_json::to_writer(&mut self.writer, request)
+            .context("failed to serialize twin-openai request log record")?;
+        self.writer
+            .write_all(b"\n")
+            .context("failed to terminate twin-openai request log record")?;
+        self.writer
+            .flush()
+            .context("failed to flush twin-openai request log record")
     }
 }

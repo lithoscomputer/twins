@@ -78,7 +78,9 @@ pub async fn spawn_server() -> Result<TestServer> {
         bind_addr: "127.0.0.1:0".parse().expect("valid addr"),
         require_auth: true,
         enable_admin: true,
-    });
+        request_log_path: None,
+    })
+    .expect("app should build");
 
     tokio::spawn(async move {
         axum::serve(listener, app).await.expect("server should run");
