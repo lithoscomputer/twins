@@ -6,6 +6,7 @@ fn config_loads_from_environment() {
         "TWIN_OPENAI_BIND_ADDR" => Some("127.0.0.1:4100".to_string()),
         "TWIN_OPENAI_REQUIRE_AUTH" | "TWIN_OPENAI_ENABLE_ADMIN" => Some("false".to_string()),
         "TWIN_OPENAI_REQUEST_LOG_PATH" => Some("tmp/requests.jsonl".to_string()),
+        "TWIN_OPENAI_SCENARIOS_PATH" => Some("fixtures/scenarios.json".to_string()),
         _ => None,
     })
     .expect("config should load");
@@ -16,5 +17,9 @@ fn config_loads_from_environment() {
     assert_eq!(
         config.request_log_path.as_deref(),
         Some(std::path::Path::new("tmp/requests.jsonl"))
+    );
+    assert_eq!(
+        config.scenarios_path.as_deref(),
+        Some(std::path::Path::new("fixtures/scenarios.json"))
     );
 }

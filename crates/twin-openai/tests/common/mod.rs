@@ -79,6 +79,7 @@ pub async fn spawn_server() -> Result<TestServer> {
         require_auth: true,
         enable_admin: true,
         request_log_path: None,
+        scenarios_path: None,
     })
     .expect("app should build");
 

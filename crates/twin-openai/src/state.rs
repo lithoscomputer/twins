@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::engine::scenario::{validate_scenario_ids, RequestContext, Scenario};
+use crate::engine::scenario::{validate_scenario_ids, RequestContext, Scenario, ScenarioEnvelope};
 use crate::logs::RequestLog;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -61,6 +61,7 @@ pub struct AppState {
 struct AppStateInner {
     namespaces: Mutex<HashMap<NamespaceKey, NamespaceState>>,
     request_log_writer: Option<Mutex<JsonlRequestLogWriter>>,
+    scenario_template: Vec<Scenario>,
 }
 
 #[derive(Debug)]
@@ -85,6 +86,15 @@ impl Default for NamespaceState {
     }
 }
 
+impl NamespaceState {
+    fn with_scenarios(scenarios: Vec<Scenario>) -> Self {
+        Self {
+            scenarios,
+            ..Self::default()
+        }
+    }
+}
+
 impl AppState {
     pub fn new(config: Config) -> Result<Self> {
         let request_log_writer = config
@@ -93,19 +103,26 @@ impl AppState {
             .map(JsonlRequestLogWriter::open)
             .transpose()?
             .map(Mutex::new);
+        let scenario_template = config
+            .scenarios_path
+            .as_deref()
+            .map(load_scenario_template)
+            .transpose()?
+            .unwrap_or_default();
 
         Ok(Self {
             config,
             inner: Arc::new(AppStateInner {
                 namespaces: Mutex::new(HashMap::new()),
                 request_log_writer,
+                scenario_template,
             }),
         })
     }
 
     pub fn next_response_id(&self, namespace: &NamespaceKey) -> u64 {
         let mut namespaces = self.inner.namespaces.lock().expect("namespaces lock");
-        let namespace_state = namespaces.entry(namespace.clone()).or_default();
+        let namespace_state = self.namespace_state(&mut namespaces, namespace);
         let response_id = namespace_state.next_response_number;
         namespace_state.next_response_number += 1;
         response_id
@@ -117,7 +134,7 @@ impl AppState {
         mut scenarios: Vec<Scenario>,
     ) -> Result<(), String> {
         let mut namespaces = self.inner.namespaces.lock().expect("namespaces lock");
-        let namespace_state = namespaces.entry(namespace.clone()).or_default();
+        let namespace_state = self.namespace_state(&mut namespaces, namespace);
         validate_scenario_ids(namespace_state.scenarios.iter().chain(scenarios.iter()))?;
         namespace_state.scenarios.append(&mut scenarios);
         Ok(())
@@ -129,7 +146,7 @@ impl AppState {
         request: &RequestContext,
     ) -> Option<Scenario> {
         let mut namespaces = self.inner.namespaces.lock().expect("namespaces lock");
-        let scenarios = &mut namespaces.entry(namespace.clone()).or_default().scenarios;
+        let scenarios = &mut self.namespace_state(&mut namespaces, namespace).scenarios;
         let position = scenarios
             .iter()
             .position(|scenario| scenario.matches(request))?;
@@ -157,12 +174,8 @@ impl AppState {
                 .expect("request JSONL writer lock should not be poisoned")
         });
 
-        self.inner
-            .namespaces
-            .lock()
-            .expect("namespaces lock")
-            .entry(namespace.clone())
-            .or_default()
+        let mut namespaces = self.inner.namespaces.lock().expect("namespaces lock");
+        self.namespace_state(&mut namespaces, namespace)
             .request_logs
             .push(request_log.clone());
 
@@ -188,7 +201,10 @@ impl AppState {
             .namespaces
             .lock()
             .expect("namespaces lock")
-            .remove(namespace);
+            .insert(
+                namespace.clone(),
+                NamespaceState::with_scenarios(self.inner.scenario_template.clone()),
+            );
     }
 
     pub fn debug_snapshot(&self) -> DebugSnapshot {
@@ -215,6 +231,35 @@ impl AppState {
         }
         DebugSnapshot { namespaces: result }
     }
+
+    fn namespace_state<'a>(
+        &self,
+        namespaces: &'a mut HashMap<NamespaceKey, NamespaceState>,
+        namespace: &NamespaceKey,
+    ) -> &'a mut NamespaceState {
+        namespaces
+            .entry(namespace.clone())
+            .or_insert_with(|| NamespaceState::with_scenarios(self.inner.scenario_template.clone()))
+    }
+}
+
+fn load_scenario_template(path: &Path) -> Result<Vec<Scenario>> {
+    let contents = fs::read_to_string(path).with_context(|| {
+        format!(
+            "failed to read twin-openai scenarios from {}",
+            path.display()
+        )
+    })?;
+    let envelope: ScenarioEnvelope = serde_json::from_str(&contents).with_context(|| {
+        format!(
+            "failed to parse twin-openai scenarios from {}",
+            path.display()
+        )
+    })?;
+    validate_scenario_ids(&envelope.scenarios)
+        .map_err(anyhow::Error::msg)
+        .with_context(|| format!("invalid twin-openai scenarios in {}", path.display()))?;
+    Ok(envelope.scenarios)
 }
 
 impl JsonlRequestLogWriter {

@@ -24,6 +24,7 @@ fn config(request_log_path: &Path) -> Config {
         require_auth: true,
         enable_admin: true,
         request_log_path: Some(request_log_path.to_owned()),
+        scenarios_path: None,
     }
 }
 

@@ -7,6 +7,7 @@ const BIND_ADDR_ENV: &str = "TWIN_OPENAI_BIND_ADDR";
 const REQUIRE_AUTH_ENV: &str = "TWIN_OPENAI_REQUIRE_AUTH";
 const ENABLE_ADMIN_ENV: &str = "TWIN_OPENAI_ENABLE_ADMIN";
 const REQUEST_LOG_PATH_ENV: &str = "TWIN_OPENAI_REQUEST_LOG_PATH";
+const SCENARIOS_PATH_ENV: &str = "TWIN_OPENAI_SCENARIOS_PATH";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -14,6 +15,7 @@ pub struct Config {
     pub require_auth: bool,
     pub enable_admin: bool,
     pub request_log_path: Option<PathBuf>,
+    pub scenarios_path: Option<PathBuf>,
 }
 
 impl Config {
@@ -40,12 +42,16 @@ impl Config {
         let request_log_path = lookup(REQUEST_LOG_PATH_ENV)
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
+        let scenarios_path = lookup(SCENARIOS_PATH_ENV)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
 
         Ok(Self {
             bind_addr,
             require_auth,
             enable_admin,
             request_log_path,
+            scenarios_path,
         })
     }
 }
@@ -61,6 +67,7 @@ impl Default for Config {
             require_auth: true,
             enable_admin: true,
             request_log_path: None,
+            scenarios_path: None,
         })
     }
 }
