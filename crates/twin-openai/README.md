@@ -26,7 +26,11 @@ The server binds to `127.0.0.1:3000` by default.
 Set `TWIN_OPENAI_SCENARIOS_PATH` to a scenario JSON file to load a startup
 template. Each bearer-token namespace receives its own copy on first use.
 Resetting a namespace restores that template, clears its request log, and
-restarts its deterministic response counter.
+restarts its deterministic response counter. When a startup template is
+configured, unmatched requests fail with `scenario_not_found` by default. Set
+`TWIN_OPENAI_ALLOW_UNMATCHED=true` to use deterministic fallback responses for
+unmatched requests in fixture mode. Without a startup template, deterministic
+fallback remains the default.
 
 Set `TWIN_OPENAI_REQUEST_LOG_PATH` to stream normalized request records to a
 JSONL file. The server creates or truncates the file at startup and flushes

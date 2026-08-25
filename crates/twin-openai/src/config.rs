@@ -8,6 +8,7 @@ const REQUIRE_AUTH_ENV: &str = "TWIN_OPENAI_REQUIRE_AUTH";
 const ENABLE_ADMIN_ENV: &str = "TWIN_OPENAI_ENABLE_ADMIN";
 const REQUEST_LOG_PATH_ENV: &str = "TWIN_OPENAI_REQUEST_LOG_PATH";
 const SCENARIOS_PATH_ENV: &str = "TWIN_OPENAI_SCENARIOS_PATH";
+const ALLOW_UNMATCHED_ENV: &str = "TWIN_OPENAI_ALLOW_UNMATCHED";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -16,6 +17,7 @@ pub struct Config {
     pub enable_admin: bool,
     pub request_log_path: Option<PathBuf>,
     pub scenarios_path: Option<PathBuf>,
+    pub allow_unmatched: bool,
 }
 
 impl Config {
@@ -45,6 +47,10 @@ impl Config {
         let scenarios_path = lookup(SCENARIOS_PATH_ENV)
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
+        let allow_unmatched = lookup(ALLOW_UNMATCHED_ENV)
+            .map(|value| parse_bool_env(&value, ALLOW_UNMATCHED_ENV))
+            .transpose()?
+            .unwrap_or(false);
 
         Ok(Self {
             bind_addr,
@@ -52,6 +58,7 @@ impl Config {
             enable_admin,
             request_log_path,
             scenarios_path,
+            allow_unmatched,
         })
     }
 }
@@ -68,6 +75,7 @@ impl Default for Config {
             enable_admin: true,
             request_log_path: None,
             scenarios_path: None,
+            allow_unmatched: false,
         })
     }
 }

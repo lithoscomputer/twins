@@ -5,7 +5,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Map;
 use twin_openai::config::Config;
+use twin_openai::engine::execute_responses_request;
 use twin_openai::engine::scenario::RequestContext;
+use twin_openai::openai::models::ResponsesRequest;
 use twin_openai::state::{AppState, NamespaceKey};
 
 static NEXT_PATH: AtomicU64 = AtomicU64::new(1);
@@ -18,13 +20,14 @@ fn scenarios_path(name: &str) -> PathBuf {
     ))
 }
 
-fn config(scenarios_path: PathBuf) -> Config {
+fn config(scenarios_path: PathBuf, allow_unmatched: bool) -> Config {
     Config {
         bind_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3000),
         require_auth: true,
         enable_admin: true,
         request_log_path: None,
         scenarios_path: Some(scenarios_path),
+        allow_unmatched,
     }
 }
 
@@ -53,7 +56,8 @@ fn startup_scenarios_are_isolated_per_namespace_and_restored_on_reset() {
         }"#,
     )
     .expect("scenario fixture should write");
-    let state = AppState::new(config(path.clone())).expect("state should load scenario fixture");
+    let state =
+        AppState::new(config(path.clone(), false)).expect("state should load scenario fixture");
     let primary = NamespaceKey::Bearer("primary".to_owned());
     let secondary = NamespaceKey::Bearer("secondary".to_owned());
 
@@ -97,10 +101,38 @@ fn invalid_startup_scenario_file_prevents_state_startup() {
     let path = scenarios_path("invalid");
     fs::write(&path, "not json").expect("invalid fixture should write");
 
-    let error = AppState::new(config(path.clone())).expect_err("invalid fixture should fail");
+    let error =
+        AppState::new(config(path.clone(), false)).expect_err("invalid fixture should fail");
     assert!(error
         .to_string()
         .contains("failed to parse twin-openai scenarios"));
+
+    fs::remove_file(path).expect("scenario fixture should be removable");
+}
+
+#[test]
+fn fixture_mode_rejects_unmatched_requests_unless_explicitly_allowed() {
+    let path = scenarios_path("strict");
+    fs::write(&path, r#"{ "scenarios": [] }"#).expect("scenario fixture should write");
+    let namespace = NamespaceKey::Bearer("strict".to_owned());
+    let request: ResponsesRequest = serde_json::from_value(serde_json::json!({
+        "model": "gpt-test",
+        "input": "unmatched",
+        "stream": false
+    }))
+    .expect("request should parse");
+
+    let strict_state =
+        AppState::new(config(path.clone(), false)).expect("strict state should start");
+    let error = execute_responses_request(&strict_state, &namespace, &request)
+        .expect_err("strict fixture mode should reject unmatched request");
+    assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(error.body.error.code, "scenario_not_found");
+    assert_eq!(strict_state.request_logs(&namespace).len(), 1);
+
+    let permissive_state =
+        AppState::new(config(path.clone(), true)).expect("permissive state should start");
+    assert!(execute_responses_request(&permissive_state, &namespace, &request).is_ok());
 
     fs::remove_file(path).expect("scenario fixture should be removable");
 }

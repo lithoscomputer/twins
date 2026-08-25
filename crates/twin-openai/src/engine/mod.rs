@@ -27,6 +27,10 @@ pub fn execute_responses_request(
         instructions_text: request.extract_instruction_text(),
     };
     let scenario = state.take_matching_scenario(namespace, &context);
+    let unmatched_error = (scenario.is_none()
+        && state.config.scenarios_path.is_some()
+        && !state.config.allow_unmatched)
+        .then(|| OpenAiError::scenario_not_found(&context.endpoint, &context.model));
     state.log_request(
         namespace,
         context,
@@ -34,6 +38,9 @@ pub fn execute_responses_request(
             .as_ref()
             .and_then(|scenario| scenario.scenario_id.clone()),
     );
+    if let Some(error) = unmatched_error {
+        return Err(error);
+    }
 
     if let Some(scenario) = scenario {
         return match scenario.execute_for_responses(state.next_response_id(namespace), request) {
@@ -68,6 +75,10 @@ pub fn execute_chat_request(
         instructions_text: request.extract_instruction_text(),
     };
     let scenario = state.take_matching_scenario(namespace, &context);
+    let unmatched_error = (scenario.is_none()
+        && state.config.scenarios_path.is_some()
+        && !state.config.allow_unmatched)
+        .then(|| OpenAiError::scenario_not_found(&context.endpoint, &context.model));
     state.log_request(
         namespace,
         context,
@@ -75,6 +86,9 @@ pub fn execute_chat_request(
             .as_ref()
             .and_then(|scenario| scenario.scenario_id.clone()),
     );
+    if let Some(error) = unmatched_error {
+        return Err(error);
+    }
 
     if let Some(scenario) = scenario {
         return match scenario.execute_for_chat(state.next_response_id(namespace), request) {

@@ -25,6 +25,7 @@ fn config(request_log_path: &Path) -> Config {
         enable_admin: true,
         request_log_path: Some(request_log_path.to_owned()),
         scenarios_path: None,
+        allow_unmatched: false,
     }
 }
 

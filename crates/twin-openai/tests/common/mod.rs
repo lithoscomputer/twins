@@ -80,6 +80,7 @@ pub async fn spawn_server() -> Result<TestServer> {
         enable_admin: true,
         request_log_path: None,
         scenarios_path: None,
+        allow_unmatched: false,
     })
     .expect("app should build");
 

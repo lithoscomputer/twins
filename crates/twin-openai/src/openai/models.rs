@@ -472,6 +472,22 @@ impl OpenAiError {
         }
     }
 
+    pub fn scenario_not_found(endpoint: &str, model: &str) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            body: ErrorEnvelope {
+                error: ErrorBody {
+                    message: format!(
+                        "no configured scenario matched the {endpoint} request for model {model}"
+                    ),
+                    error_type: "invalid_request_error".to_owned(),
+                    param: Value::Null,
+                    code: "scenario_not_found".to_owned(),
+                },
+            },
+        }
+    }
+
     pub fn into_response(self) -> (StatusCode, Json<ErrorEnvelope>) {
         (self.status, Json(self.body))
     }

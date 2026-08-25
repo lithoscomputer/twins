@@ -225,6 +225,7 @@ async fn debug_routes_not_accessible_when_admin_disabled() {
         enable_admin: false,
         request_log_path: None,
         scenarios_path: None,
+        allow_unmatched: false,
     })
     .expect("app should build");
 
