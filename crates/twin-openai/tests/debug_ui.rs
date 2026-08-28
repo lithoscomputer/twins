@@ -226,6 +226,10 @@ async fn debug_routes_not_accessible_when_admin_disabled() {
         request_log_path: None,
         scenarios_path: None,
         allow_unmatched: false,
+        mode: twin_openai::config::Mode::Twin,
+        upstream_url: "https://api.openai.com".to_owned(),
+        upstream_api_key: None,
+        recording_path: None,
     })
     .expect("app should build");
 

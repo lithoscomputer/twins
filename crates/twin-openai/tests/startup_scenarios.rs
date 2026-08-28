@@ -28,6 +28,10 @@ fn config(scenarios_path: PathBuf, allow_unmatched: bool) -> Config {
         request_log_path: None,
         scenarios_path: Some(scenarios_path),
         allow_unmatched,
+        mode: twin_openai::config::Mode::Twin,
+        upstream_url: "https://api.openai.com".to_owned(),
+        upstream_api_key: None,
+        recording_path: None,
     }
 }
 

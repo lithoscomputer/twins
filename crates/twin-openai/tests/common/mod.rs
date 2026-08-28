@@ -88,12 +88,8 @@ pub async fn spawn_server_with_scenarios(
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr: SocketAddr = listener.local_addr()?;
     let app = twin_openai::build_app_with_config(Config {
-        bind_addr: "127.0.0.1:0".parse().expect("valid addr"),
-        require_auth: true,
-        enable_admin: true,
-        request_log_path: None,
         scenarios_path,
-        allow_unmatched: false,
+        ..test_config()
     })
     .expect("app should build");
 
@@ -102,6 +98,22 @@ pub async fn spawn_server_with_scenarios(
     });
 
     TestServer::new(format!("http://{addr}"), next_bearer_token())
+}
+
+/// Baseline twin-mode config for in-process test servers.
+pub fn test_config() -> Config {
+    Config {
+        bind_addr: "127.0.0.1:0".parse().expect("valid addr"),
+        require_auth: true,
+        enable_admin: true,
+        request_log_path: None,
+        scenarios_path: None,
+        allow_unmatched: false,
+        mode: twin_openai::config::Mode::Twin,
+        upstream_url: "https://api.openai.com".to_owned(),
+        upstream_api_key: None,
+        recording_path: None,
+    }
 }
 
 fn next_bearer_token() -> String {
