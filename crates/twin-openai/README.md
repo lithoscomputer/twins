@@ -89,6 +89,43 @@ curl -X POST http://127.0.0.1:3000/__admin/reset \
 - Structured output supports `json_object` and a documented `json_schema` subset.
 - Scripted failures support OpenAI-shaped application errors, delays, hangs, partial streams, and malformed SSE.
 
+## Recorded Contract Fixtures
+
+The twin's contract with the live OpenAI API is recorded on disk and
+replayed offline:
+
+- `tests/common/cases.rs` defines one request per covered surface. Every
+  prompt embeds a `[case:<id>]` marker.
+- `tests/snapshots/` holds canonical snapshots of each exchange, projected
+  onto the compatibility matrix: volatile values and generated text are
+  redacted, generated JSON is parsed, and stream chunks collapse into
+  milestone sequences. Each case also has a `__live_extras` snapshot listing
+  observed fields outside the contract, so drift there stays visible.
+- `fixtures/scenarios.json` holds scenarios derived from the captures, with
+  the genuinely captured content. The replay suite (`tests/replay_contract.rs`)
+  loads it in strict fixture mode and asserts the same snapshots through the
+  twin on every normal `cargo test` run, with no network.
+
+Re-record against the live API with:
+
+```bash
+OPENAI_API_KEY=... mise run record
+```
+
+`mise run record` is the only blessed write path for these snapshots. Do not
+`cargo insta accept` a replay failure: that would overwrite the recorded live
+truth with twin output. A replay failure after re-recording means the twin no
+longer reproduces the live contract, and the engine needs work.
+
+The nightly `Nightly OpenAI drift` workflow re-records on a schedule. When
+the canonical shape changed, it opens a PR with the updated snapshots and
+fixtures and reports whether the replay suite still passes (passing = content
+churn, failing = real drift). When only captured content changed, it discards
+the churn and exits quietly.
+
+Record and replay must use the same model. `TWIN_OPENAI_LIVE_MODEL` overrides
+the default for both suites.
+
 ## Optional Live OpenAI Smoke Suite
 
 Run the ignored live drift detector only when you explicitly want to compare `twin-openai` against the real OpenAI API:
