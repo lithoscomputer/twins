@@ -10,6 +10,7 @@ pub mod debug_ui;
 pub mod engine;
 pub mod logs;
 pub mod openai;
+pub mod record;
 pub mod sse;
 pub mod state;
 
