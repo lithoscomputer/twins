@@ -126,6 +126,44 @@ the churn and exits quietly.
 Record and replay must use the same model. `TWIN_OPENAI_LIVE_MODEL` overrides
 the default for both suites.
 
+## Proxy-Record Mode
+
+Set `TWIN_OPENAI_MODE=proxy-record` to turn the server into a recording
+proxy for an application's E2E suite:
+
+```bash
+TWIN_OPENAI_MODE=proxy-record \
+OPENAI_API_KEY=sk-... \
+TWIN_OPENAI_RECORDING_PATH=recordings/scenarios.json \
+cargo run -p twin-openai
+```
+
+- Point the app's OpenAI client at the twin, with a fake test-scoped bearer
+  token per E2E test (for example `e2e-checkout-flow`). The bearer names the
+  recording namespace. The twin replaces it with `OPENAI_API_KEY` when
+  forwarding, so no secret ever lands in a recording.
+- `/v1/responses` and `/v1/chat/completions` are forwarded to
+  `TWIN_OPENAI_UPSTREAM_URL` (default `https://api.openai.com`) and streamed
+  back verbatim.
+- Every successful exchange is derived into a scripted scenario appended to
+  the recording file, with ordered ids like `e2e-checkout-flow/0001` and a
+  loose matcher (endpoint + stream). The file is truncated at startup and
+  rewritten atomically after each exchange, so an interrupted run keeps what
+  it captured.
+- Failed upstream responses and underivable exchanges pass through without
+  being recorded. Admin and debug routes are not mounted in this mode.
+
+To replay, start the twin normally with
+`TWIN_OPENAI_SCENARIOS_PATH=recordings/scenarios.json` and run the same E2E
+suite unchanged. Scenarios with a `namespace` seed only that bearer's
+namespace and replay in recorded order. Strict fixture mode fails loudly on
+an exhausted queue or an unrecorded bearer. Hand-scripted failure scenarios
+still compose on top through `POST /__admin/scenarios`.
+
+Replay renders content through the twin's canonical engine: the app sees the
+recorded content and event sequence, not the original chunk boundaries or
+timing.
+
 ## Optional Live OpenAI Smoke Suite
 
 Run the ignored live drift detector only when you explicitly want to compare `twin-openai` against the real OpenAI API:
