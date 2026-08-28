@@ -1,0 +1,33 @@
+---
+source: crates/twin-openai/tests/common/normalize.rs
+---
+{
+  "status": 200,
+  "content_type": "application/json",
+  "body": {
+    "id": "[id]",
+    "object": "chat.completion",
+    "created": "[timestamp]",
+    "model": "gpt-5-nano-2025-08-07",
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": {
+            "json": {
+              "message": "All good.",
+              "ok": true
+            }
+          }
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": "[int]",
+      "completion_tokens": "[int]",
+      "total_tokens": "[int]"
+    }
+  }
+}

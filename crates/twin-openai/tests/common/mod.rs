@@ -76,6 +76,15 @@ pub fn test_http_client() -> Result<Client> {
 }
 
 pub async fn spawn_server() -> Result<TestServer> {
+    spawn_server_with_scenarios(None).await
+}
+
+/// Spawn the twin with an optional startup scenario template. A template
+/// puts the server in strict fixture mode: unmatched requests fail with
+/// `scenario_not_found`.
+pub async fn spawn_server_with_scenarios(
+    scenarios_path: Option<std::path::PathBuf>,
+) -> Result<TestServer> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr: SocketAddr = listener.local_addr()?;
     let app = twin_openai::build_app_with_config(Config {
@@ -83,7 +92,7 @@ pub async fn spawn_server() -> Result<TestServer> {
         require_auth: true,
         enable_admin: true,
         request_log_path: None,
-        scenarios_path: None,
+        scenarios_path,
         allow_unmatched: false,
     })
     .expect("app should build");

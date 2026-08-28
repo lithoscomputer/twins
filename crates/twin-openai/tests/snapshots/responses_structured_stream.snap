@@ -1,0 +1,47 @@
+---
+source: crates/twin-openai/tests/common/normalize.rs
+---
+{
+  "status": 200,
+  "content_type": "text/event-stream",
+  "milestones": [
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added[reasoning]",
+    "response.output_item.done[reasoning]",
+    "response.output_item.added[message]",
+    "response.content_part.added",
+    "response.output_text.delta",
+    "response.output_text.done",
+    "response.content_part.done",
+    "response.output_item.done[message]",
+    "response.completed"
+  ],
+  "completed": {
+    "id": "[id]",
+    "object": "response",
+    "model": "gpt-5-nano-2025-08-07",
+    "status": "completed",
+    "output": [
+      {
+        "id": "[id]",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "structured",
+            "json": {
+              "message": "Everything checks out.",
+              "ok": true
+            }
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "input_tokens": "[int]",
+      "output_tokens": "[int]",
+      "total_tokens": "[int]"
+    }
+  }
+}

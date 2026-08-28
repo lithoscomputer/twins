@@ -34,13 +34,18 @@ pub struct CanonicalExchange {
 
 /// Assert a named insta snapshot with the settings shared by the live and
 /// replay suites. Both suites must resolve to the same snapshot file, so the
-/// module prefix is dropped from the file name.
+/// module prefix is dropped from the file name and the path is pinned to
+/// `tests/snapshots` (insta resolves relative to this source file).
 ///
 /// Returns an error instead of panicking so a suite can assert every case and
 /// report all mismatches at once.
 pub fn assert_named_snapshot(name: &str, value: &Value) -> Result<(), String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        insta::with_settings!({ prepend_module_to_snapshot => false, omit_expression => true }, {
+        insta::with_settings!({
+            snapshot_path => "../snapshots",
+            prepend_module_to_snapshot => false,
+            omit_expression => true,
+        }, {
             insta::assert_json_snapshot!(name, value);
         });
     }))
