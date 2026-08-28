@@ -4,6 +4,9 @@
     reason = "Shared test helpers stay public within the test crate and not every helper is used everywhere."
 )]
 
+pub mod cases;
+pub mod normalize;
+
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -441,6 +444,71 @@ impl TestServer {
 
         decode_http_response(&response)
     }
+}
+
+/// A raw captured exchange, kept for fixture derivation during recording.
+pub enum RawExchange {
+    Json(Value),
+    Stream(Vec<ParsedSseEvent>),
+}
+
+pub struct JsonExchange {
+    pub status: u16,
+    pub content_type: Option<String>,
+    pub body: Value,
+}
+
+pub struct SseExchange {
+    pub status: u16,
+    pub content_type: Option<String>,
+    pub transcript: ParsedSseTranscript,
+}
+
+pub async fn post_json_exchange(
+    client: &ApiClient,
+    path: &str,
+    body: &Value,
+) -> Result<JsonExchange> {
+    let response = client.post_json_recorded(path, body).await;
+    anyhow::ensure!(
+        response.status == reqwest::StatusCode::OK,
+        "{path} returned {}: {}",
+        response.status,
+        String::from_utf8_lossy(&response.body)
+    );
+    let parsed = serde_json::from_slice(&response.body).map_err(|error| {
+        anyhow::anyhow!(
+            "{path} response body was not valid JSON ({error}): {}",
+            String::from_utf8_lossy(&response.body)
+        )
+    })?;
+
+    Ok(JsonExchange {
+        status: response.status.as_u16(),
+        content_type: response.headers.get("content-type").cloned(),
+        body: parsed,
+    })
+}
+
+pub async fn post_sse_exchange(
+    client: &ApiClient,
+    path: &str,
+    body: &Value,
+) -> Result<SseExchange> {
+    let response = client.post_json_recorded(path, body).await;
+    anyhow::ensure!(
+        response.status == reqwest::StatusCode::OK,
+        "{path} returned {}: {}",
+        response.status,
+        String::from_utf8_lossy(&response.body)
+    );
+    let transcript = parse_sse_transcript(&response.body).map_err(anyhow::Error::msg)?;
+
+    Ok(SseExchange {
+        status: response.status.as_u16(),
+        content_type: response.headers.get("content-type").cloned(),
+        transcript,
+    })
 }
 
 pub fn parse_sse_transcript(body: &[u8]) -> Result<ParsedSseTranscript, String> {
