@@ -5,6 +5,7 @@
 )]
 
 pub mod cases;
+pub mod fixtures;
 pub mod normalize;
 
 use std::collections::HashMap;

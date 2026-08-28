@@ -235,7 +235,10 @@ async fn live_contract_snapshots() {
         .expect("chat availability probe should complete");
 
     let mut failures = Vec::new();
-    let mut recorded: Vec<(common::cases::ContractCase, Vec<CapturedTurn>)> = Vec::new();
+    let mut recorded: Vec<(
+        common::cases::ContractCase,
+        Vec<common::fixtures::RecordedTurn>,
+    )> = Vec::new();
 
     for case in common::cases::all_cases() {
         let availability = match case.endpoint {
@@ -262,6 +265,16 @@ async fn live_contract_snapshots() {
     if recorded.is_empty() && failures.is_empty() {
         eprintln!("skipping live contract snapshots because no live surfaces are accessible");
         return;
+    }
+
+    if common::fixtures::recording_enabled() {
+        match common::fixtures::write_fixtures(&recorded) {
+            Ok(()) => eprintln!(
+                "wrote scenario fixtures to {}",
+                common::fixtures::scenarios_path().display()
+            ),
+            Err(error) => failures.push(format!("fixture recording failed: {error:#}")),
+        }
     }
 
     for (_, turns) in &recorded {
@@ -296,15 +309,10 @@ async fn live_contract_snapshots() {
     );
 }
 
-struct CapturedTurn {
-    snapshot_name: String,
-    canonical: common::normalize::CanonicalExchange,
-}
-
 async fn capture_live_case(
     config: &LiveOptions,
     case: &common::cases::ContractCase,
-) -> Result<Vec<CapturedTurn>> {
+) -> Result<Vec<common::fixtures::RecordedTurn>> {
     let request = (case.build_request)(&config.model);
     let mut turns = Vec::new();
     let first_body =
@@ -331,7 +339,7 @@ async fn capture_live_turn(
     case: &common::cases::ContractCase,
     snapshot_name: String,
     request: Value,
-    turns: &mut Vec<CapturedTurn>,
+    turns: &mut Vec<common::fixtures::RecordedTurn>,
 ) -> Result<Option<Value>> {
     if case.stream {
         let exchange =
@@ -342,9 +350,11 @@ async fn capture_live_turn(
             exchange.content_type.as_deref(),
             &exchange.transcript,
         );
-        turns.push(CapturedTurn {
+        turns.push(common::fixtures::RecordedTurn {
             snapshot_name,
+            request,
             canonical,
+            raw: common::RawExchange::Stream(exchange.transcript.events),
         });
         Ok(None)
     } else {
@@ -356,11 +366,14 @@ async fn capture_live_turn(
             exchange.content_type.as_deref(),
             &exchange.body,
         );
-        turns.push(CapturedTurn {
+        let body = exchange.body.clone();
+        turns.push(common::fixtures::RecordedTurn {
             snapshot_name,
+            request,
             canonical,
+            raw: common::RawExchange::Json(exchange.body),
         });
-        Ok(Some(exchange.body))
+        Ok(Some(body))
     }
 }
 

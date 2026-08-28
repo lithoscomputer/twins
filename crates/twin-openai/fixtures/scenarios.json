@@ -1,0 +1,220 @@
+{
+  "scenarios": [
+    {
+      "scenario_id": "responses_text",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": false,
+        "input_contains": "[case:responses_text]"
+      },
+      "script": {
+        "kind": "success",
+        "response_text": "Hello! How can I help you today?",
+        "usage": { "input_tokens": 14, "output_tokens": 9 }
+      }
+    },
+    {
+      "scenario_id": "responses_text_stream",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": true,
+        "input_contains": "[case:responses_text_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "response_text": "Hi there! Hope you're having a great day.",
+        "usage": { "input_tokens": 14, "output_tokens": 11 }
+      }
+    },
+    {
+      "scenario_id": "responses_structured",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": false,
+        "input_contains": "[case:responses_structured]"
+      },
+      "script": {
+        "kind": "success",
+        "structured_output": { "message": "All good.", "ok": true },
+        "usage": { "input_tokens": 46, "output_tokens": 12 }
+      }
+    },
+    {
+      "scenario_id": "responses_structured_stream",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": true,
+        "input_contains": "[case:responses_structured_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "structured_output": { "message": "Everything checks out.", "ok": true },
+        "usage": { "input_tokens": 46, "output_tokens": 13 }
+      }
+    },
+    {
+      "scenario_id": "responses_tool_call",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": false,
+        "input_contains": "[case:responses_tool_call]"
+      },
+      "script": {
+        "kind": "success",
+        "tool_calls": [
+          { "name": "lookup_weather", "arguments": { "city": "Boston" } }
+        ],
+        "usage": { "input_tokens": 58, "output_tokens": 16 }
+      }
+    },
+    {
+      "scenario_id": "responses_tool_call_stream",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": true,
+        "input_contains": "[case:responses_tool_call_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "tool_calls": [
+          { "name": "lookup_weather", "arguments": { "city": "Boston" } }
+        ],
+        "usage": { "input_tokens": 58, "output_tokens": 16 }
+      }
+    },
+    {
+      "scenario_id": "responses_tool_choice_none",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": false,
+        "input_contains": "[case:responses_tool_choice_none]"
+      },
+      "script": {
+        "kind": "success",
+        "response_text": "The lookup_weather tool returns current conditions for a given city.",
+        "usage": { "input_tokens": 60, "output_tokens": 15 }
+      }
+    },
+    {
+      "scenario_id": "responses_image_input",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": false,
+        "input_contains": "[case:responses_image_input]"
+      },
+      "script": {
+        "kind": "success",
+        "response_text": "A blue atom-like logo with orbiting ellipses.",
+        "usage": { "input_tokens": 112, "output_tokens": 12 }
+      }
+    },
+    {
+      "scenario_id": "responses_continuation",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": false,
+        "input_contains": "[case:responses_continuation]"
+      },
+      "script": {
+        "kind": "success",
+        "response_text": "Hello! Nice to meet you.",
+        "usage": { "input_tokens": 15, "output_tokens": 8 }
+      }
+    },
+    {
+      "scenario_id": "responses_continuation__turn2",
+      "matcher": {
+        "endpoint": "responses",
+        "stream": false,
+        "input_contains": "[case:responses_continuation:turn2]"
+      },
+      "script": {
+        "kind": "success",
+        "response_text": "Goodbye! Take care.",
+        "usage": { "input_tokens": 34, "output_tokens": 7 }
+      }
+    },
+    {
+      "scenario_id": "chat_text",
+      "matcher": {
+        "endpoint": "chat.completions",
+        "stream": false,
+        "input_contains": "[case:chat_text]"
+      },
+      "script": {
+        "kind": "success",
+        "response_text": "Hello! How can I help you today?",
+        "usage": { "input_tokens": 16, "output_tokens": 9 }
+      }
+    },
+    {
+      "scenario_id": "chat_text_stream",
+      "matcher": {
+        "endpoint": "chat.completions",
+        "stream": true,
+        "input_contains": "[case:chat_text_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "response_text": "Hi! Great to hear from you.",
+        "usage": { "input_tokens": 16, "output_tokens": 9 }
+      }
+    },
+    {
+      "scenario_id": "chat_structured",
+      "matcher": {
+        "endpoint": "chat.completions",
+        "stream": false,
+        "input_contains": "[case:chat_structured]"
+      },
+      "script": {
+        "kind": "success",
+        "structured_output": { "message": "All good.", "ok": true },
+        "usage": { "input_tokens": 48, "output_tokens": 12 }
+      }
+    },
+    {
+      "scenario_id": "chat_tool_call",
+      "matcher": {
+        "endpoint": "chat.completions",
+        "stream": false,
+        "input_contains": "[case:chat_tool_call]"
+      },
+      "script": {
+        "kind": "success",
+        "tool_calls": [
+          { "name": "lookup_weather", "arguments": { "city": "Boston" } }
+        ],
+        "usage": { "input_tokens": 62, "output_tokens": 16 }
+      }
+    },
+    {
+      "scenario_id": "chat_tool_call_stream",
+      "matcher": {
+        "endpoint": "chat.completions",
+        "stream": true,
+        "input_contains": "[case:chat_tool_call_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "tool_calls": [
+          { "name": "lookup_weather", "arguments": { "city": "Boston" } }
+        ],
+        "usage": { "input_tokens": 62, "output_tokens": 16 }
+      }
+    },
+    {
+      "scenario_id": "chat_tool_choice_none",
+      "matcher": {
+        "endpoint": "chat.completions",
+        "stream": false,
+        "input_contains": "[case:chat_tool_choice_none]"
+      },
+      "script": {
+        "kind": "success",
+        "response_text": "The lookup_weather tool returns current conditions for a given city.",
+        "usage": { "input_tokens": 64, "output_tokens": 15 }
+      }
+    }
+  ]
+}
