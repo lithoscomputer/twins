@@ -18,7 +18,7 @@ source: crates/twin-openai/tests/common/normalize.rs
           {
             "type": "structured",
             "json": {
-              "message": "All good.",
+              "message": "Short structured answer ready.",
               "ok": true
             }
           }

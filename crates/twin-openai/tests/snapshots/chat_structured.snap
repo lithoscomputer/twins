@@ -17,7 +17,7 @@ source: crates/twin-openai/tests/common/normalize.rs
           "role": "assistant",
           "content": {
             "json": {
-              "message": "All good.",
+              "message": "Acknowledged. Please provide your question or instruction.",
               "ok": true
             }
           }

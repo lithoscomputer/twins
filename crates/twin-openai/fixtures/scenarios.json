@@ -9,8 +9,11 @@
       },
       "script": {
         "kind": "success",
-        "response_text": "Hello! How can I help you today?",
-        "usage": { "input_tokens": 14, "output_tokens": 9 }
+        "response_text": "Hello!",
+        "usage": {
+          "input_tokens": 18,
+          "output_tokens": 149
+        }
       }
     },
     {
@@ -22,8 +25,11 @@
       },
       "script": {
         "kind": "success",
-        "response_text": "Hi there! Hope you're having a great day.",
-        "usage": { "input_tokens": 14, "output_tokens": 11 }
+        "response_text": "Hello!",
+        "usage": {
+          "input_tokens": 19,
+          "output_tokens": 200
+        }
       }
     },
     {
@@ -35,8 +41,14 @@
       },
       "script": {
         "kind": "success",
-        "structured_output": { "message": "All good.", "ok": true },
-        "usage": { "input_tokens": 46, "output_tokens": 12 }
+        "structured_output": {
+          "message": "Short structured answer ready.",
+          "ok": true
+        },
+        "usage": {
+          "input_tokens": 48,
+          "output_tokens": 512
+        }
       }
     },
     {
@@ -48,8 +60,14 @@
       },
       "script": {
         "kind": "success",
-        "structured_output": { "message": "Everything checks out.", "ok": true },
-        "usage": { "input_tokens": 46, "output_tokens": 13 }
+        "structured_output": {
+          "message": "Acknowledged.",
+          "ok": true
+        },
+        "usage": {
+          "input_tokens": 49,
+          "output_tokens": 298
+        }
       }
     },
     {
@@ -62,9 +80,17 @@
       "script": {
         "kind": "success",
         "tool_calls": [
-          { "name": "lookup_weather", "arguments": { "city": "Boston" } }
+          {
+            "name": "lookup_weather",
+            "arguments": {
+              "city": "Boston"
+            }
+          }
         ],
-        "usage": { "input_tokens": 58, "output_tokens": 16 }
+        "usage": {
+          "input_tokens": 55,
+          "output_tokens": 534
+        }
       }
     },
     {
@@ -77,9 +103,17 @@
       "script": {
         "kind": "success",
         "tool_calls": [
-          { "name": "lookup_weather", "arguments": { "city": "Boston" } }
+          {
+            "name": "lookup_weather",
+            "arguments": {
+              "city": "Boston"
+            }
+          }
         ],
-        "usage": { "input_tokens": 58, "output_tokens": 16 }
+        "usage": {
+          "input_tokens": 56,
+          "output_tokens": 356
+        }
       }
     },
     {
@@ -91,8 +125,11 @@
       },
       "script": {
         "kind": "success",
-        "response_text": "The lookup_weather tool returns current conditions for a given city.",
-        "usage": { "input_tokens": 60, "output_tokens": 15 }
+        "response_text": "Here’s a high-level description of the weather data capability, without calling it:\n\n- What it does\n  - Retrieves current atmospheric conditions for a specified location and can provide a forecast (hourly or daily) and any active weather alerts.\n\n- What you provide (inputs)\n  - Location: a city (and optionally a country/region for disambiguation).\n  - Units: metric (Celsius, km/h) or imperial (Fahrenheit, mph).\n  - Language: preferred language for descriptions (optional).\n  - Forecast horizon (optional): how far ahead you want the forecast (e.g., next 24 hours, 7 days).\n\n- What you get back (outputs)\n  - Current conditions: temperature, descriptive weather (e.g., clear, cloudy, rain), humidity, wind speed and direction, atmospheric pressure, visibility, cloud cover, precipitation amount, and sometimes UV index.\n  - Forecast: a list of time-stamped entries with similar fields (temp, description, wind, precipitation chances) for the requested horizon.\n  - Alerts: any active severe weather alerts with type, severity, and start/end times.\n\n- Data and reliability\n  - Pulls from multiple meteorological sources (national services, radar/satellite data, weather stations) and blends them for a usable result.\n  - There can be minor delays or gaps due to data latency or coverage in remote areas.\n  - Accuracy depends on location specificity; more precise locations yield better results.\n\n- Usage notes\n  - If the location is ambiguous, a clarification may be requested (e.g., which city or region).\n  - Units and descriptions adapt to the chosen language and measurement system.\n  - Suitable for planning activities, travel, or simply checking conditions.\n\n- Quick example (conceptual)\n  - Location: “Paris, FR”\n  - Current: 18°C, partly cloudy, wind 12 km/h from W, humidity 65%\n  - Forecast: next 24 hours showing hourly temps and conditions, plus any rain chances\n  - Alerts: none at the moment\n\nIf you’d like, I can tailor this description to a specific interface or show a mock sample response structure.",
+        "usage": {
+          "input_tokens": 57,
+          "output_tokens": 1539
+        }
       }
     },
     {
@@ -104,8 +141,11 @@
       },
       "script": {
         "kind": "success",
-        "response_text": "A blue atom-like logo with orbiting ellipses.",
-        "usage": { "input_tokens": 112, "output_tokens": 12 }
+        "response_text": "Blue React logo — an atom with orbiting rings.",
+        "usage": {
+          "input_tokens": 45,
+          "output_tokens": 199
+        }
       }
     },
     {
@@ -117,8 +157,11 @@
       },
       "script": {
         "kind": "success",
-        "response_text": "Hello! Nice to meet you.",
-        "usage": { "input_tokens": 15, "output_tokens": 8 }
+        "response_text": "Hello!",
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 144
+        }
       }
     },
     {
@@ -130,8 +173,11 @@
       },
       "script": {
         "kind": "success",
-        "response_text": "Goodbye! Take care.",
-        "usage": { "input_tokens": 34, "output_tokens": 7 }
+        "response_text": "Goodbye!",
+        "usage": {
+          "input_tokens": 49,
+          "output_tokens": 130
+        }
       }
     },
     {
@@ -143,8 +189,11 @@
       },
       "script": {
         "kind": "success",
-        "response_text": "Hello! How can I help you today?",
-        "usage": { "input_tokens": 16, "output_tokens": 9 }
+        "response_text": "Hello!",
+        "usage": {
+          "input_tokens": 18,
+          "output_tokens": 139
+        }
       }
     },
     {
@@ -156,8 +205,11 @@
       },
       "script": {
         "kind": "success",
-        "response_text": "Hi! Great to hear from you.",
-        "usage": { "input_tokens": 16, "output_tokens": 9 }
+        "response_text": "Hello!",
+        "usage": {
+          "input_tokens": 19,
+          "output_tokens": 139
+        }
       }
     },
     {
@@ -169,8 +221,14 @@
       },
       "script": {
         "kind": "success",
-        "structured_output": { "message": "All good.", "ok": true },
-        "usage": { "input_tokens": 48, "output_tokens": 12 }
+        "structured_output": {
+          "message": "Acknowledged. Please provide your question or instruction.",
+          "ok": true
+        },
+        "usage": {
+          "input_tokens": 52,
+          "output_tokens": 414
+        }
       }
     },
     {
@@ -183,9 +241,17 @@
       "script": {
         "kind": "success",
         "tool_calls": [
-          { "name": "lookup_weather", "arguments": { "city": "Boston" } }
+          {
+            "name": "lookup_weather",
+            "arguments": {
+              "city": "Boston"
+            }
+          }
         ],
-        "usage": { "input_tokens": 62, "output_tokens": 16 }
+        "usage": {
+          "input_tokens": 137,
+          "output_tokens": 279
+        }
       }
     },
     {
@@ -198,9 +264,17 @@
       "script": {
         "kind": "success",
         "tool_calls": [
-          { "name": "lookup_weather", "arguments": { "city": "Boston" } }
+          {
+            "name": "lookup_weather",
+            "arguments": {
+              "city": "Boston"
+            }
+          }
         ],
-        "usage": { "input_tokens": 62, "output_tokens": 16 }
+        "usage": {
+          "input_tokens": 138,
+          "output_tokens": 407
+        }
       }
     },
     {
@@ -212,8 +286,11 @@
       },
       "script": {
         "kind": "success",
-        "response_text": "The lookup_weather tool returns current conditions for a given city.",
-        "usage": { "input_tokens": 64, "output_tokens": 15 }
+        "response_text": "Here’s a concise description of how a typical weather information capability works, described without executing any request:\n\n- Purpose\n  - Provide current weather conditions, short-term and extended forecasts, and related weather insights for a specified location.\n\n- Input (common)\n  - Location: a city name, town, or a pair of geographic coordinates.\n  - Optional preferences: units (metric or imperial), language, and possibly the desired forecast horizon (e.g., hourly, 3-hourly, daily).\n\n- Outputs (typical content)\n  - Current conditions: temperature, weather description (e.g., clear, rain, cloudy), humidity, wind speed and direction, visibility, atmospheric pressure.\n  - Forecast: hourly or daily predictions including temperatures, precipitation probability, precipitation type, wind, and summaries.\n  - Alerts and warnings: severe weather notices (e.g., storms, heat waves) if applicable.\n  - Additional details: feels-like temperature (wind chill or heat index), sunrise/sunset times, UV index, and sometimes air quality indicators.\n\n- Data sources and quality\n  - Aggregates data from meteorological stations, radar, satellites, and official weather agencies.\n  - Updates at regular intervals (e.g., every hour or more frequently for critical data).\n  - Assumes typical data latency and local calibration; accuracy improves with more precise location data.\n\n- Interaction patterns\n  - Natural-language queries: “What’s the weather in Paris right now?” or “Will it rain tomorrow afternoon in Tokyo?”\n  - Structured requests: “Forecast for Nairobi for the next 5 days” or “Hourly forecast for Sydney for today.”\n  - Unit and language preferences: “Show temperatures in Celsius” or “Give me the forecast in Spanish.”\n\n- Output formats\n  - Human-readable text suitable for chat or voice responses.\n  - Structured data formats (e.g., JSON) for integration with apps or other services.\n  - Optional maps or visual charts in graphical interfaces, showing temperature, precipitation, and wind trends.\n\n- Edge cases and handling\n  - Ambiguous locations (e.g., multiple places with the same name): request clarification or offer to search nearby places.\n  - Missing data for a location: provide best-effort estimates and note data limitations.\n  - Location privacy: use user-provided location only with consent; offer manual location input as an alternative.\n\n- Limitations\n  - Weather is inherently uncertain; forecasts become less reliable further into the future.\n  - Data gaps due to sensor outages or delayed reports can affect accuracy.\n  - Regional differences in reporting standards may affect the level of detail.\n\nIf you’d like, I can tailor this description to a specific use case (e.g., a mobile app, a voice assistant, or a website) and outline the exact inputs and outputs you’d expect for that context.",
+        "usage": {
+          "input_tokens": 139,
+          "output_tokens": 1602
+        }
       }
     }
   ]

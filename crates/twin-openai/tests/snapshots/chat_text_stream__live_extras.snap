@@ -1,0 +1,11 @@
+---
+source: crates/twin-openai/tests/common/normalize.rs
+---
+[
+  "chunk.delta.refusal",
+  "chunk.obfuscation",
+  "chunk.service_tier",
+  "chunk.system_fingerprint",
+  "chunk.usage.completion_tokens_details",
+  "chunk.usage.prompt_tokens_details"
+]
