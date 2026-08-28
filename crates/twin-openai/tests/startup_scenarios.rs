@@ -97,6 +97,78 @@ fn startup_scenarios_are_isolated_per_namespace_and_restored_on_reset() {
 }
 
 #[test]
+fn namespaced_startup_scenarios_seed_only_their_bearer_namespace() {
+    let path = scenarios_path("namespaced");
+    fs::write(
+        &path,
+        r#"{
+            "scenarios": [
+                {
+                    "scenario_id": "shared",
+                    "matcher": { "endpoint": "responses", "stream": false },
+                    "script": { "kind": "success", "response_text": "shared" }
+                },
+                {
+                    "scenario_id": "only-a",
+                    "namespace": "test-a",
+                    "matcher": { "endpoint": "responses", "stream": false },
+                    "script": { "kind": "success", "response_text": "for test-a" }
+                }
+            ]
+        }"#,
+    )
+    .expect("scenario fixture should write");
+    let state = AppState::new(config(path.clone(), false)).expect("state should load fixture");
+    let test_a = NamespaceKey::Bearer("test-a".to_owned());
+    let test_b = NamespaceKey::Bearer("test-b".to_owned());
+
+    // test-a receives the shared scenario followed by its own.
+    assert_eq!(
+        state
+            .take_matching_scenario(&test_a, &request())
+            .expect("first test-a scenario")
+            .scenario_id
+            .as_deref(),
+        Some("shared")
+    );
+    assert_eq!(
+        state
+            .take_matching_scenario(&test_a, &request())
+            .expect("second test-a scenario")
+            .scenario_id
+            .as_deref(),
+        Some("only-a")
+    );
+    assert!(state.take_matching_scenario(&test_a, &request()).is_none());
+
+    // test-b receives only the shared scenario.
+    assert_eq!(
+        state
+            .take_matching_scenario(&test_b, &request())
+            .expect("test-b scenario")
+            .scenario_id
+            .as_deref(),
+        Some("shared")
+    );
+    assert!(state.take_matching_scenario(&test_b, &request()).is_none());
+
+    // Reset re-applies the namespace filter.
+    state.reset(&test_b);
+    assert_eq!(
+        state
+            .take_matching_scenario(&test_b, &request())
+            .expect("reset test-b scenario")
+            .scenario_id
+            .as_deref(),
+        Some("shared")
+    );
+    assert!(state.take_matching_scenario(&test_b, &request()).is_none());
+
+    drop(state);
+    fs::remove_file(path).expect("scenario fixture should be removable");
+}
+
+#[test]
 fn invalid_startup_scenario_file_prevents_state_startup() {
     let path = scenarios_path("invalid");
     fs::write(&path, "not json").expect("invalid fixture should write");

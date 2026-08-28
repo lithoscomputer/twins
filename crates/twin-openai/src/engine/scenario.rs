@@ -15,6 +15,10 @@ pub struct ScenarioEnvelope {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Scenario {
     pub scenario_id: Option<String>,
+    /// Restricts startup-template seeding to one bearer-token namespace.
+    /// Scenarios without a namespace seed every namespace. Recordings from
+    /// proxy-record mode set this to the recording test's bearer token.
+    pub namespace: Option<String>,
     pub matcher: ScenarioMatcher,
     pub script: ScenarioScript,
 }
