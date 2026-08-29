@@ -11,8 +11,11 @@ const SCENARIOS_PATH_ENV: &str = "TWIN_OPENAI_SCENARIOS_PATH";
 const ALLOW_UNMATCHED_ENV: &str = "TWIN_OPENAI_ALLOW_UNMATCHED";
 const MODE_ENV: &str = "TWIN_OPENAI_MODE";
 const UPSTREAM_URL_ENV: &str = "TWIN_OPENAI_UPSTREAM_URL";
-const UPSTREAM_API_KEY_ENV: &str = "OPENAI_API_KEY";
+const UPSTREAM_API_KEY_ENV: &str = "TWIN_OPENAI_UPSTREAM_API_KEY";
+const OPENAI_API_KEY_ENV: &str = "OPENAI_API_KEY";
 const RECORDING_PATH_ENV: &str = "TWIN_OPENAI_RECORDING_PATH";
+const RECORD_FORMAT_ENV: &str = "TWIN_OPENAI_RECORD_FORMAT";
+const RECORDING_APPEND_ENV: &str = "TWIN_OPENAI_RECORDING_APPEND";
 
 const DEFAULT_UPSTREAM_URL: &str = "https://api.openai.com";
 
@@ -27,7 +30,25 @@ pub enum Mode {
     ProxyRecord,
 }
 
+/// What proxy-record mode writes for each successful exchange.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RecordFormat {
+    /// Derive the exchange into the canonical scenario shape: response
+    /// text, tool calls, usage. Replays through the twin's engine.
+    #[default]
+    Semantic,
+    /// Keep the exchange verbatim: status, content type, and the raw JSON
+    /// body or the ordered SSE events. Replays byte-faithfully, preserving
+    /// provider extension fields and event granularity the canonical
+    /// engine would erase.
+    Transcript,
+}
+
 #[derive(Clone, Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Each bool is an independent env-configured switch, not a state machine."
+)]
 pub struct Config {
     pub bind_addr: SocketAddr,
     pub require_auth: bool,
@@ -39,6 +60,8 @@ pub struct Config {
     pub upstream_url: String,
     pub upstream_api_key: Option<String>,
     pub recording_path: Option<PathBuf>,
+    pub record_format: RecordFormat,
+    pub recording_append: bool,
 }
 
 impl Config {
@@ -86,10 +109,23 @@ impl Config {
                 || DEFAULT_UPSTREAM_URL.to_owned(),
                 |value| value.trim_end_matches('/').to_owned(),
             );
-        let upstream_api_key = lookup(UPSTREAM_API_KEY_ENV).filter(|value| !value.is_empty());
+        let upstream_api_key = lookup(UPSTREAM_API_KEY_ENV)
+            .or_else(|| lookup(OPENAI_API_KEY_ENV))
+            .filter(|value| !value.is_empty());
         let recording_path = lookup(RECORDING_PATH_ENV)
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
+        let record_format = match lookup(RECORD_FORMAT_ENV).as_deref() {
+            None | Some("semantic") => RecordFormat::Semantic,
+            Some("transcript") => RecordFormat::Transcript,
+            Some(other) => {
+                anyhow::bail!("{RECORD_FORMAT_ENV} must be semantic or transcript, got {other}")
+            }
+        };
+        let recording_append = lookup(RECORDING_APPEND_ENV)
+            .map(|value| parse_bool_env(&value, RECORDING_APPEND_ENV))
+            .transpose()?
+            .unwrap_or(false);
 
         let config = Self {
             bind_addr,
@@ -102,6 +138,8 @@ impl Config {
             upstream_url,
             upstream_api_key,
             recording_path,
+            record_format,
+            recording_append,
         };
         config.validate()?;
         Ok(config)
@@ -111,7 +149,7 @@ impl Config {
         if self.mode == Mode::ProxyRecord {
             anyhow::ensure!(
                 self.upstream_api_key.is_some(),
-                "proxy-record mode requires {UPSTREAM_API_KEY_ENV}"
+                "proxy-record mode requires {UPSTREAM_API_KEY_ENV} or {OPENAI_API_KEY_ENV}"
             );
             anyhow::ensure!(
                 self.recording_path.is_some(),
@@ -139,6 +177,8 @@ impl Default for Config {
             upstream_url: DEFAULT_UPSTREAM_URL.to_owned(),
             upstream_api_key: None,
             recording_path: None,
+            record_format: RecordFormat::Semantic,
+            recording_append: false,
         })
     }
 }

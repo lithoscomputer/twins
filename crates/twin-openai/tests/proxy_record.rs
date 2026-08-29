@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
-use twin_openai::config::{Config, Mode};
+use twin_openai::config::{Config, Mode, RecordFormat};
 
 const UPSTREAM_KEY: &str = "upstream-secret";
 
@@ -203,6 +203,8 @@ async fn proxy_records_and_replays_per_namespace() {
         upstream_url: upstream.base_url.clone(),
         upstream_api_key: Some(UPSTREAM_KEY.to_owned()),
         recording_path: Some(recording.clone()),
+        record_format: RecordFormat::Semantic,
+        recording_append: false,
         ..common::test_config()
     })
     .await;

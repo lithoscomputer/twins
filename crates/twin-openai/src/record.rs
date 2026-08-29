@@ -394,3 +394,21 @@ fn observe_usage(usage: Option<&Value>, input_key: &str, output_key: &str) -> Op
 fn parse_arguments(arguments: &str) -> Value {
     serde_json::from_str(arguments).unwrap_or_else(|_| Value::String(arguments.to_owned()))
 }
+
+/// Hash of a request body for transcript matching.
+///
+/// The body is parsed and re-serialized before hashing, so the hash follows
+/// the JSON content rather than incidental whitespace. The hash is FNV-1a
+/// over that canonical text — a matcher key, not a security boundary.
+#[must_use]
+pub fn request_hash(body: &[u8]) -> Option<String> {
+    let value: Value = serde_json::from_slice(body).ok()?;
+    let canonical = value.to_string();
+
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in canonical.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    Some(format!("{hash:016x}"))
+}

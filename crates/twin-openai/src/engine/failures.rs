@@ -1,6 +1,8 @@
 use axum::http::StatusCode;
+use serde_json::Value;
 
 use super::plan::ResponsePlan;
+use super::scenario::TranscriptEvent;
 use crate::openai::models::{ErrorBody, ErrorEnvelope};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -29,7 +31,27 @@ pub struct ErrorOutcome {
 pub enum ExecutionOutcome {
     Success(SuccessOutcome),
     Error(ErrorOutcome),
-    Hang { delay_before_headers_ms: u64 },
+    Hang {
+        delay_before_headers_ms: u64,
+    },
+    /// A verbatim recorded exchange to send back exactly as captured.
+    Transcript(TranscriptOutcome),
+}
+
+/// A recorded exchange replayed without the canonical engine.
+#[derive(Clone, Debug)]
+pub struct TranscriptOutcome {
+    pub status: StatusCode,
+    pub content_type: Option<String>,
+    pub body: TranscriptBody,
+}
+
+#[derive(Clone, Debug)]
+pub enum TranscriptBody {
+    /// A non-streaming JSON body, verbatim.
+    Json(Value),
+    /// An SSE body as its ordered recorded events, one chunk per event.
+    Events(Vec<TranscriptEvent>),
 }
 
 impl ErrorOutcome {

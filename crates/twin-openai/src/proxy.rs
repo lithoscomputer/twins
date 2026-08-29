@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -26,10 +26,11 @@ use axum::{middleware, Json, Router};
 use futures_util::StreamExt;
 use serde_json::{json, Map, Value};
 
-use crate::config::Config;
+use crate::config::{Config, RecordFormat};
 use crate::openai::auth;
 use crate::record::{
-    derive_script, parse_sse_events, ExchangeShape, RecordedEndpoint, RecordedExchange,
+    derive_script, parse_sse_events, request_hash, ExchangeShape, RecordedEndpoint,
+    RecordedExchange,
 };
 
 #[derive(Clone)]
@@ -38,6 +39,7 @@ struct ProxyState {
     upstream_url: String,
     upstream_api_key: String,
     require_auth: bool,
+    record_format: RecordFormat,
     recorder: Arc<Recorder>,
 }
 
@@ -58,7 +60,8 @@ pub fn router(config: &Config) -> Result<Router> {
         upstream_url: config.upstream_url.clone(),
         upstream_api_key,
         require_auth: config.require_auth,
-        recorder: Arc::new(Recorder::create(recording_path)?),
+        record_format: config.record_format,
+        recorder: Arc::new(Recorder::create(recording_path, config.recording_append)?),
     };
 
     let mut v1 = Router::new()
@@ -116,6 +119,7 @@ async fn proxy_exchange(
     let shape = serde_json::from_slice::<Value>(&body)
         .ok()
         .map(|request| ExchangeShape::from_request(endpoint, &request));
+    let hash = request_hash(&body);
 
     let mut upstream_request = state
         .client
@@ -151,6 +155,7 @@ async fn proxy_exchange(
         stream_and_record(
             &state,
             shape,
+            hash,
             bearer,
             status,
             content_type,
@@ -163,9 +168,22 @@ async fn proxy_exchange(
         };
         if status == StatusCode::OK {
             if let (Some(shape), Ok(parsed)) = (shape, serde_json::from_slice::<Value>(&body)) {
-                state
-                    .recorder
-                    .record(bearer.as_deref(), shape, &RecordedExchange::Json(parsed));
+                let exchange = RecordedExchange::Json(parsed);
+                match state.record_format {
+                    RecordFormat::Semantic => {
+                        state.recorder.record(bearer.as_deref(), shape, &exchange);
+                    }
+                    RecordFormat::Transcript => {
+                        state.recorder.record_transcript(
+                            bearer.as_deref(),
+                            shape,
+                            hash,
+                            status,
+                            content_type.as_ref(),
+                            &exchange,
+                        );
+                    }
+                }
             }
         }
         passthrough_response(status, content_type, Body::from(body))
@@ -175,12 +193,15 @@ async fn proxy_exchange(
 fn stream_and_record(
     state: &ProxyState,
     shape: Option<ExchangeShape>,
+    hash: Option<String>,
     bearer: Option<String>,
     status: StatusCode,
     content_type: Option<HeaderValue>,
     upstream_response: reqwest::Response,
 ) -> Response {
     let recorder = state.recorder.clone();
+    let record_format = state.record_format;
+    let recorded_content_type = content_type.clone();
     let body = Body::from_stream(stream! {
         let mut buffer: Vec<u8> = Vec::new();
         let mut upstream = upstream_response.bytes_stream();
@@ -204,11 +225,22 @@ fn stream_and_record(
         if !failed && status == StatusCode::OK {
             if let Some(shape) = shape {
                 match parse_sse_events(&buffer) {
-                    Ok(events) => recorder.record(
-                        bearer.as_deref(),
-                        shape,
-                        &RecordedExchange::Stream(events),
-                    ),
+                    Ok(events) => {
+                        let exchange = RecordedExchange::Stream(events);
+                        match record_format {
+                            RecordFormat::Semantic => {
+                                recorder.record(bearer.as_deref(), shape, &exchange);
+                            }
+                            RecordFormat::Transcript => recorder.record_transcript(
+                                bearer.as_deref(),
+                                shape,
+                                hash,
+                                status,
+                                recorded_content_type.as_ref(),
+                                &exchange,
+                            ),
+                        }
+                    }
                     Err(error) => {
                         tracing::warn!(%error, "failed to parse streamed exchange for recording");
                     }
@@ -263,9 +295,11 @@ struct RecorderState {
 }
 
 impl Recorder {
-    /// Creates the recorder and truncates the recording file, so a server
-    /// run always produces a complete, self-consistent recording.
-    fn create(path: PathBuf) -> Result<Self> {
+    /// Creates the recorder. By default the recording file is truncated, so
+    /// a server run produces a complete, self-consistent recording; with
+    /// `append` an existing file's scenarios are kept and new exchanges
+    /// continue each namespace's numbering after them.
+    fn create(path: PathBuf, append: bool) -> Result<Self> {
         if let Some(parent) = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -275,13 +309,22 @@ impl Recorder {
             })?;
         }
 
+        let state = if append && path.exists() {
+            load_recorder_state(&path)?
+        } else {
+            RecorderState::default()
+        };
+
         let recorder = Self {
             path,
-            state: Mutex::new(RecorderState::default()),
+            state: Mutex::new(state),
         };
-        recorder
-            .flush(&RecorderState::default())
-            .context("failed to initialize recording file")?;
+        {
+            let state = recorder.state.lock().expect("recorder lock");
+            recorder
+                .flush(&state)
+                .context("failed to initialize recording file")?;
+        }
         Ok(recorder)
     }
 
@@ -293,7 +336,63 @@ impl Recorder {
                 return;
             }
         };
+        let matcher = json!({
+            "endpoint": shape.endpoint.scenario_endpoint(),
+            "stream": shape.stream,
+        });
+        self.push_scenario(bearer, matcher, Value::Object(script));
+    }
 
+    /// Records a verbatim transcript scenario: the exchange goes into the
+    /// file as its raw body or SSE events, matched by the request hash.
+    fn record_transcript(
+        &self,
+        bearer: Option<&str>,
+        shape: ExchangeShape,
+        hash: Option<String>,
+        status: StatusCode,
+        content_type: Option<&HeaderValue>,
+        exchange: &RecordedExchange,
+    ) {
+        let mut matcher = Map::new();
+        matcher.insert(
+            "endpoint".to_owned(),
+            Value::String(shape.endpoint.scenario_endpoint().to_owned()),
+        );
+        matcher.insert("stream".to_owned(), Value::Bool(shape.stream));
+        if let Some(hash) = hash {
+            matcher.insert("request_hash".to_owned(), Value::String(hash));
+        }
+
+        let mut script = Map::new();
+        script.insert("kind".to_owned(), Value::String("transcript".to_owned()));
+        script.insert("status".to_owned(), Value::from(status.as_u16()));
+        if let Some(content_type) = content_type.and_then(|value| value.to_str().ok()) {
+            script.insert(
+                "content_type".to_owned(),
+                Value::String(content_type.to_owned()),
+            );
+        }
+        match exchange {
+            RecordedExchange::Json(body) => {
+                script.insert("body".to_owned(), body.clone());
+            }
+            RecordedExchange::Stream(events) => {
+                let events: Vec<Value> = events
+                    .iter()
+                    .map(|event| match &event.event {
+                        Some(name) => json!({ "event": name, "data": event.data }),
+                        None => json!({ "data": event.data }),
+                    })
+                    .collect();
+                script.insert("events".to_owned(), Value::Array(events));
+            }
+        }
+
+        self.push_scenario(bearer, Value::Object(matcher), Value::Object(script));
+    }
+
+    fn push_scenario(&self, bearer: Option<&str>, matcher: Value, script: Value) {
         let mut state = self.state.lock().expect("recorder lock");
         let namespace_label = bearer.unwrap_or("global");
         let sequence = {
@@ -313,14 +412,8 @@ impl Recorder {
         if let Some(bearer) = bearer {
             scenario.insert("namespace".to_owned(), Value::String(bearer.to_owned()));
         }
-        scenario.insert(
-            "matcher".to_owned(),
-            json!({
-                "endpoint": shape.endpoint.scenario_endpoint(),
-                "stream": shape.stream,
-            }),
-        );
-        scenario.insert("script".to_owned(), Value::Object(script));
+        scenario.insert("matcher".to_owned(), matcher);
+        scenario.insert("script".to_owned(), script);
         state.scenarios.push(Value::Object(scenario));
 
         if let Err(error) = self.flush(&state) {
@@ -339,4 +432,45 @@ impl Recorder {
             .with_context(|| format!("failed to move recording into {}", self.path.display()))?;
         Ok(())
     }
+}
+
+/// Loads an existing recording so an append run continues it: the scenarios
+/// are kept, and each namespace's counter resumes after the highest
+/// recorded sequence number.
+fn load_recorder_state(path: &Path) -> Result<RecorderState> {
+    let contents = fs::read_to_string(path)
+        .with_context(|| format!("failed to read existing recording {}", path.display()))?;
+    let document: Value = serde_json::from_str(&contents)
+        .with_context(|| format!("existing recording {} is not valid JSON", path.display()))?;
+    let scenarios = document
+        .get("scenarios")
+        .and_then(Value::as_array)
+        .cloned()
+        .with_context(|| {
+            format!(
+                "existing recording {} has no scenarios array",
+                path.display()
+            )
+        })?;
+
+    let mut counters: HashMap<String, u64> = HashMap::new();
+    for scenario in &scenarios {
+        let Some((label, sequence)) = scenario
+            .get("scenario_id")
+            .and_then(Value::as_str)
+            .and_then(|id| id.rsplit_once('/'))
+        else {
+            continue;
+        };
+        let Ok(sequence) = sequence.parse::<u64>() else {
+            continue;
+        };
+        let counter = counters.entry(label.to_owned()).or_insert(0);
+        *counter = (*counter).max(sequence);
+    }
+
+    Ok(RecorderState {
+        scenarios,
+        counters,
+    })
 }

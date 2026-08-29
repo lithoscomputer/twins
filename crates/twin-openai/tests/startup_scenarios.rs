@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Map;
-use twin_openai::config::Config;
+use twin_openai::config::{Config, RecordFormat};
 use twin_openai::engine::execute_responses_request;
 use twin_openai::engine::scenario::RequestContext;
 use twin_openai::openai::models::ResponsesRequest;
@@ -32,6 +32,8 @@ fn config(scenarios_path: PathBuf, allow_unmatched: bool) -> Config {
         upstream_url: "https://api.openai.com".to_owned(),
         upstream_api_key: None,
         recording_path: None,
+        record_format: RecordFormat::Semantic,
+        recording_append: false,
     }
 }
 
@@ -42,6 +44,7 @@ fn request() -> RequestContext {
         stream: false,
         input_text: "hello".to_owned(),
         instructions_text: String::new(),
+        request_hash: None,
         metadata: Map::new(),
     }
 }
@@ -200,7 +203,7 @@ fn fixture_mode_rejects_unmatched_requests_unless_explicitly_allowed() {
 
     let strict_state =
         AppState::new(config(path.clone(), false)).expect("strict state should start");
-    let error = execute_responses_request(&strict_state, &namespace, &request)
+    let error = execute_responses_request(&strict_state, &namespace, &request, None)
         .expect_err("strict fixture mode should reject unmatched request");
     assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST);
     assert_eq!(error.body.error.code, "scenario_not_found");
@@ -208,7 +211,7 @@ fn fixture_mode_rejects_unmatched_requests_unless_explicitly_allowed() {
 
     let permissive_state =
         AppState::new(config(path.clone(), true)).expect("permissive state should start");
-    assert!(execute_responses_request(&permissive_state, &namespace, &request).is_ok());
+    assert!(execute_responses_request(&permissive_state, &namespace, &request, None).is_ok());
 
     fs::remove_file(path).expect("scenario fixture should be removable");
 }

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Map, Value};
-use twin_openai::config::Config;
+use twin_openai::config::{Config, RecordFormat};
 use twin_openai::engine::scenario::RequestContext;
 use twin_openai::state::{AppState, NamespaceKey};
 
@@ -30,6 +30,8 @@ fn config(request_log_path: &Path) -> Config {
         upstream_url: "https://api.openai.com".to_owned(),
         upstream_api_key: None,
         recording_path: None,
+        record_format: RecordFormat::Semantic,
+        recording_append: false,
     }
 }
 
@@ -40,6 +42,7 @@ fn request(endpoint: &str, input_text: &str) -> RequestContext {
         stream: true,
         input_text: input_text.to_owned(),
         instructions_text: String::new(),
+        request_hash: None,
         metadata: Map::new(),
     }
 }

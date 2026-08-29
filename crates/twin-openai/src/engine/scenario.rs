@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 
-use super::failures::{ErrorOutcome, ExecutionOutcome, SuccessOutcome, TransportOptions};
+use super::failures::{
+    ErrorOutcome, ExecutionOutcome, SuccessOutcome, TranscriptBody, TranscriptOutcome,
+    TransportOptions,
+};
 use super::plan::{ResponsePlan, TokenUsage, ToolCallPlan};
 use crate::openai::models::{ChatCompletionsRequest, ResponsesRequest};
 
@@ -31,6 +34,10 @@ pub struct ScenarioMatcher {
     #[serde(default)]
     pub metadata: Map<String, Value>,
     pub input_contains: Option<String>,
+    /// Hash of the canonicalized request body, as proxy-record writes it in
+    /// transcript format. A hashed scenario matches only the exact request
+    /// it was recorded from, so replay does not depend on request order.
+    pub request_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -58,6 +65,22 @@ pub enum ScenarioScript {
     Hang {
         delay_before_headers_ms: Option<u64>,
     },
+    /// A verbatim recorded exchange, replayed without the canonical engine:
+    /// the recorded JSON body or SSE events go back exactly as captured,
+    /// provider extension fields and event granularity included.
+    Transcript {
+        status: u16,
+        content_type: Option<String>,
+        body: Option<Value>,
+        events: Option<Vec<TranscriptEvent>>,
+    },
+}
+
+/// One recorded SSE event of a transcript scenario.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TranscriptEvent {
+    pub event: Option<String>,
+    pub data: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -77,6 +100,8 @@ pub struct RequestContext {
     pub metadata: Map<String, Value>,
     pub input_text: String,
     pub instructions_text: String,
+    /// Hash of the canonicalized request body, for transcript matching.
+    pub request_hash: Option<String>,
 }
 
 impl ScenarioScript {
@@ -85,6 +110,7 @@ impl ScenarioScript {
             Self::Success { .. } => "success",
             Self::Error { .. } => "error",
             Self::Hang { .. } => "hang",
+            Self::Transcript { .. } => "transcript",
         }
     }
 }
@@ -109,6 +135,12 @@ impl Scenario {
 
         if let Some(needle) = &self.matcher.input_contains {
             if !request.input_text.contains(needle) {
+                return false;
+            }
+        }
+
+        if let Some(request_hash) = &self.matcher.request_hash {
+            if request.request_hash.as_ref() != Some(request_hash) {
                 return false;
             }
         }
@@ -155,6 +187,17 @@ impl Scenario {
                     malformed_sse: malformed_sse.unwrap_or(false),
                 },
             }),
+            ScenarioScript::Transcript {
+                status,
+                content_type,
+                body,
+                events,
+            } => ExecutionOutcome::Transcript(transcript_outcome(
+                *status,
+                content_type.clone(),
+                body.clone(),
+                events.clone(),
+            )),
             ScenarioScript::Error {
                 status,
                 message,
@@ -212,6 +255,17 @@ impl Scenario {
                     malformed_sse: malformed_sse.unwrap_or(false),
                 },
             }),
+            ScenarioScript::Transcript {
+                status,
+                content_type,
+                body,
+                events,
+            } => ExecutionOutcome::Transcript(transcript_outcome(
+                *status,
+                content_type.clone(),
+                body.clone(),
+                events.clone(),
+            )),
             ScenarioScript::Error {
                 status,
                 message,
@@ -252,6 +306,22 @@ pub fn validate_scenario_ids<'a>(
         }
     }
     Ok(())
+}
+
+fn transcript_outcome(
+    status: u16,
+    content_type: Option<String>,
+    body: Option<Value>,
+    events: Option<Vec<TranscriptEvent>>,
+) -> TranscriptOutcome {
+    TranscriptOutcome {
+        status: StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        content_type,
+        body: match events {
+            Some(events) => TranscriptBody::Events(events),
+            None => TranscriptBody::Json(body.unwrap_or(Value::Null)),
+        },
+    }
 }
 
 fn build_plan_from_script(

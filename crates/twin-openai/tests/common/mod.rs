@@ -20,7 +20,7 @@ use reqwest::{Client, ClientBuilder};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use twin_openai::config::Config;
+use twin_openai::config::{Config, RecordFormat};
 
 pub struct TestServer {
     pub base_url: String,
@@ -113,6 +113,8 @@ pub fn test_config() -> Config {
         upstream_url: "https://api.openai.com".to_owned(),
         upstream_api_key: None,
         recording_path: None,
+        record_format: RecordFormat::Semantic,
+        recording_append: false,
     }
 }
 

@@ -164,6 +164,40 @@ Replay renders content through the twin's canonical engine: the app sees the
 recorded content and event sequence, not the original chunk boundaries or
 timing.
 
+### Transcript recording
+
+Set `TWIN_OPENAI_RECORD_FORMAT=transcript` to record exchanges verbatim
+instead of deriving them:
+
+```bash
+TWIN_OPENAI_MODE=proxy-record \
+TWIN_OPENAI_RECORD_FORMAT=transcript \
+TWIN_OPENAI_UPSTREAM_URL=https://api.venice.ai/api \
+TWIN_OPENAI_UPSTREAM_API_KEY=vk-... \
+TWIN_OPENAI_RECORDING_PATH=recordings/scenarios.json \
+cargo run -p twin-openai
+```
+
+- Each recorded scenario keeps the exchange as captured: the response
+  status, content type, and the raw JSON body — or, for a stream, the
+  ordered SSE events. Provider extension fields the canonical engine does
+  not model (a gateway's cost fields, `reasoning_content`, cache counters,
+  a non-canonical finish reason) survive replay untouched.
+- Replay is byte-faithful and bypasses the canonical engine: a JSON
+  transcript returns its recorded body verbatim, and an SSE transcript
+  returns its recorded events one chunk per event, so a streaming client
+  exercises the same event granularity the provider sent. Original
+  chunk-within-event boundaries and timing are not reproduced.
+- Transcript scenarios match by a hash of the canonicalized request body
+  (written into the matcher as `request_hash`), so replay does not depend
+  on request order within a namespace. Semantic and transcript scenarios
+  can share one file; each entry replays according to its own kind.
+- `TWIN_OPENAI_UPSTREAM_API_KEY` names the upstream key for any
+  OpenAI-compatible gateway; `OPENAI_API_KEY` still works as the fallback.
+- `TWIN_OPENAI_RECORDING_APPEND=true` keeps an existing recording's
+  scenarios and continues each namespace's numbering after them, so a
+  suite can re-record selectively instead of all at once.
+
 ## Optional Live OpenAI Smoke Suite
 
 Run the ignored live drift detector only when you explicitly want to compare `twin-openai` against the real OpenAI API:
