@@ -467,3 +467,102 @@ async fn proxy_rebases_the_responses_path_and_forwards_seat_headers() {
 
     std::fs::remove_file(&recording).ok();
 }
+
+/// The Codex deployment answers a streaming request with no content-type
+/// header at all. The proxy must classify the exchange by the request's own
+/// stream flag, record the SSE transcript, and replay it — the JSON path
+/// would silently parse-fail and record nothing.
+#[tokio::test]
+async fn proxy_records_a_stream_served_without_a_content_type() {
+    use axum::body::Body;
+    use axum::http::Response as HttpResponse;
+    use axum::routing::post;
+    use axum::Router;
+
+    const SSE_BODY: &str = "event: response.created\n\
+        data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n\
+        event: response.output_item.done\n\
+        data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Bare stream.\"}]}}\n\n\
+        event: response.completed\n\
+        data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"output\":[]}}\n\n";
+
+    async fn bare_upstream() -> HttpResponse<Body> {
+        // Deliberately no content-type header, matching the live deployment.
+        HttpResponse::new(Body::from(SSE_BODY))
+    }
+
+    let upstream_app = Router::new().route("/responses", post(bare_upstream));
+    let upstream_listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener should bind");
+    let upstream_addr = upstream_listener
+        .local_addr()
+        .expect("upstream listener should have addr");
+    tokio::spawn(async move {
+        axum::serve(upstream_listener, upstream_app)
+            .await
+            .expect("upstream should run");
+    });
+
+    let recording = recording_path();
+    let proxy_url = spawn(Config {
+        mode: Mode::ProxyRecord,
+        upstream_url: format!("http://{upstream_addr}"),
+        upstream_responses_path: Some("/responses".to_owned()),
+        upstream_api_key: Some(UPSTREAM_KEY.to_owned()),
+        recording_path: Some(recording.clone()),
+        record_format: RecordFormat::Transcript,
+        enable_admin: false,
+        ..Config::default()
+    })
+    .await;
+
+    let request = json!({
+        "model": "gpt-test",
+        "input": "Please reply with a greeting.",
+        "stream": true
+    });
+    let response = client(&proxy_url, "bare-namespace")
+        .post_json("/v1/responses", &request)
+        .await;
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.text().await.expect("the stream should read");
+    assert!(
+        body.contains("Bare stream."),
+        "the passthrough must still carry the stream: {body}"
+    );
+
+    let recorded: Value = serde_json::from_str(
+        &std::fs::read_to_string(&recording).expect("the recording should exist"),
+    )
+    .expect("the recording should be JSON");
+    let scenarios = recorded["scenarios"]
+        .as_array()
+        .expect("the recording should hold scenarios");
+    assert_eq!(
+        scenarios.len(),
+        1,
+        "the bare-header stream must be recorded: {recorded}"
+    );
+    assert_eq!(scenarios[0]["matcher"]["stream"], json!(true));
+
+    // And the recorded transcript replays through the strict twin.
+    let replay_url = spawn(Config {
+        scenarios_path: Some(recording.clone()),
+        allow_unmatched: false,
+        enable_admin: false,
+        ..Config::default()
+    })
+    .await;
+    let response = client(&replay_url, "bare-namespace")
+        .post_json("/v1/responses", &request)
+        .await;
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.text().await.expect("the replay should read");
+    assert!(
+        body.contains("Bare stream."),
+        "the replay must carry the recorded stream: {body}"
+    );
+
+    std::fs::remove_file(&recording).ok();
+}
