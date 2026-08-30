@@ -249,6 +249,12 @@ pub struct ContentPart {
     pub text: Option<String>,
     #[serde(default)]
     pub image_url: Option<String>,
+    #[serde(default)]
+    pub file_url: Option<String>,
+    #[serde(default)]
+    pub file_data: Option<String>,
+    #[serde(default)]
+    pub filename: Option<String>,
 }
 
 impl ContentPart {
@@ -393,6 +399,19 @@ fn validate_input_content_part(role: &str, part: &ContentPart) -> Result<(), Ope
         "input_image" => Err(OpenAiError::invalid_request(
             "input",
             "image input parts require a supported image_url",
+        )),
+        // The live API accepts a file by URL alone, or inline as file_data
+        // with a filename beside it; omitting the filename draws 400
+        // "Missing required parameter" (verified 2026-08-30).
+        "input_file"
+            if is_supported_file_url(part.file_url.as_deref())
+                || is_supported_file_data(part.file_data.as_deref(), part.filename.as_deref()) =>
+        {
+            Ok(())
+        }
+        "input_file" => Err(OpenAiError::invalid_request(
+            "input",
+            "file input parts require file_url, or file_data with filename",
         )),
         _ => Err(OpenAiError::invalid_request(
             "input",
@@ -1101,6 +1120,17 @@ fn is_supported_image_reference(image_url: &str) -> bool {
         && (image_url.starts_with("http://")
             || image_url.starts_with("https://")
             || image_url.starts_with("data:"))
+}
+
+fn is_supported_file_url(file_url: Option<&str>) -> bool {
+    file_url.is_some_and(|url| {
+        !url.trim().is_empty() && (url.starts_with("http://") || url.starts_with("https://"))
+    })
+}
+
+fn is_supported_file_data(file_data: Option<&str>, filename: Option<&str>) -> bool {
+    file_data.is_some_and(|data| !data.trim().is_empty())
+        && filename.is_some_and(|name| !name.trim().is_empty())
 }
 
 fn is_valid_chat_image_reference(image_url: &Value) -> bool {
