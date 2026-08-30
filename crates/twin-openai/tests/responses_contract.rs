@@ -202,6 +202,58 @@ async fn responses_reject_malformed_input_items() {
 }
 
 #[tokio::test]
+async fn responses_accepts_file_input_parts() {
+    let server = common::spawn_server().await.expect("server should start");
+
+    let response = server
+        .post_responses(json!({
+            "model": "gpt-test",
+            "input": [{
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "Summarize both documents" },
+                    { "type": "input_file", "file_url": "https://example.com/report.pdf" },
+                    {
+                        "type": "input_file",
+                        "file_data": "data:application/pdf;base64,cGRmLWJ5dGVz",
+                        "filename": "inline.pdf"
+                    }
+                ]
+            }],
+            "stream": false
+        }))
+        .await;
+
+    assert_eq!(response.status(), 200);
+}
+
+/// The live API requires `filename` beside `file_data`; a request without it
+/// draws 400 "Missing required parameter" (verified 2026-08-30).
+#[tokio::test]
+async fn responses_reject_file_data_without_filename() {
+    let server = common::spawn_server().await.expect("server should start");
+
+    let response = server
+        .post_responses(json!({
+            "model": "gpt-test",
+            "input": [{
+                "role": "user",
+                "content": [{
+                    "type": "input_file",
+                    "file_data": "data:application/pdf;base64,cGRmLWJ5dGVz"
+                }]
+            }],
+            "stream": false
+        }))
+        .await;
+
+    assert_eq!(response.status(), 400);
+    let body = response.json::<serde_json::Value>().await.expect("json");
+    assert_eq!(body["error"]["type"], "invalid_request_error");
+    assert_eq!(body["error"]["param"], "input");
+}
+
+#[tokio::test]
 async fn responses_reject_malformed_image_input() {
     let server = common::spawn_server().await.expect("server should start");
 
