@@ -30,6 +30,7 @@ fn config(scenarios_path: PathBuf, allow_unmatched: bool) -> Config {
         allow_unmatched,
         mode: twin_openai::config::Mode::Twin,
         upstream_url: "https://api.openai.com".to_owned(),
+        upstream_responses_path: None,
         upstream_api_key: None,
         recording_path: None,
         record_format: RecordFormat::Semantic,

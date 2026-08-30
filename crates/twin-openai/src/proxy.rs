@@ -37,6 +37,10 @@ use crate::record::{
 struct ProxyState {
     client: reqwest::Client,
     upstream_url: String,
+    /// Where `/v1/responses` traffic lands on the upstream. OpenAI's Codex
+    /// deployment serves the unversioned `<base>/responses`, so the path is
+    /// rebased rather than echoed.
+    upstream_responses_path: String,
     upstream_api_key: String,
     require_auth: bool,
     record_format: RecordFormat,
@@ -58,6 +62,10 @@ pub fn router(config: &Config) -> Result<Router> {
             .build()
             .context("failed to build proxy HTTP client")?,
         upstream_url: config.upstream_url.clone(),
+        upstream_responses_path: config
+            .upstream_responses_path
+            .clone()
+            .unwrap_or_else(|| "/v1/responses".to_owned()),
         upstream_api_key,
         require_auth: config.require_auth,
         record_format: config.record_format,
@@ -83,14 +91,8 @@ async fn proxy_responses(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    proxy_exchange(
-        state,
-        RecordedEndpoint::Responses,
-        "/v1/responses",
-        &headers,
-        body,
-    )
-    .await
+    let path = state.upstream_responses_path.clone();
+    proxy_exchange(state, RecordedEndpoint::Responses, &path, &headers, body).await
 }
 
 async fn proxy_chat(State(state): State<ProxyState>, headers: HeaderMap, body: Bytes) -> Response {
@@ -130,7 +132,14 @@ async fn proxy_exchange(
         )
         .header(header::CONTENT_TYPE, "application/json")
         .body(body);
-    for name in ["openai-organization", "openai-project"] {
+    // `chatgpt-account-id` and `originator` are the Codex deployment's seat
+    // envelope; forwarding them costs nothing on the platform API.
+    for name in [
+        "openai-organization",
+        "openai-project",
+        "chatgpt-account-id",
+        "originator",
+    ] {
         if let Some(value) = headers.get(name) {
             upstream_request = upstream_request.header(name, value);
         }
