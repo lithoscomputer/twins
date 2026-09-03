@@ -208,6 +208,80 @@ async fn input_token_count_rejects_invalid_requests_with_openai_errors() {
 }
 
 #[tokio::test]
+async fn input_token_count_supports_exact_raw_scenarios() {
+    let server = common::spawn_server().await.expect("server should start");
+    server
+        .enqueue_scenarios(json!({
+            "scenarios": [
+                {
+                    "scenario_id": "token-count",
+                    "matcher": {
+                        "endpoint": "responses.input_tokens",
+                        "model": "gpt-test",
+                        "stream": false,
+                        "input_contains": "count this"
+                    },
+                    "script": {
+                        "kind": "raw",
+                        "status": 200,
+                        "content_type": "application/json",
+                        "chunks": [{
+                            "kind": "text",
+                            "text": "{\"object\":\"response.input_tokens\",\"input_tokens\":123}"
+                        }]
+                    }
+                },
+                {
+                    "scenario_id": "malformed-token-count",
+                    "matcher": {
+                        "endpoint": "responses.input_tokens",
+                        "model": "gpt-test",
+                        "stream": false,
+                        "input_contains": "malformed count"
+                    },
+                    "script": {
+                        "kind": "raw",
+                        "status": 200,
+                        "content_type": "application/json",
+                        "chunks": [{
+                            "kind": "text",
+                            "text": "{\"object\":\"response\",\"input_tokens\":456}"
+                        }]
+                    }
+                }
+            ]
+        }))
+        .await;
+
+    let url = format!("{}/v1/responses/input_tokens", server.base_url);
+    let counted: Value = server
+        .auth_client
+        .post(&url)
+        .json(&json!({ "model": "gpt-test", "input": "count this" }))
+        .send()
+        .await
+        .expect("input-token request should complete")
+        .json()
+        .await
+        .expect("input-token response should be JSON");
+    assert_eq!(counted["object"], "response.input_tokens");
+    assert_eq!(counted["input_tokens"], 123);
+
+    let malformed: Value = server
+        .auth_client
+        .post(url)
+        .json(&json!({ "model": "gpt-test", "input": "malformed count" }))
+        .send()
+        .await
+        .expect("input-token request should complete")
+        .json()
+        .await
+        .expect("input-token response should be JSON");
+    assert_eq!(malformed["object"], "response");
+    assert_eq!(malformed["input_tokens"], 456);
+}
+
+#[tokio::test]
 async fn utility_calls_do_not_consume_generation_state() {
     let server = common::spawn_server().await.expect("server should start");
     server

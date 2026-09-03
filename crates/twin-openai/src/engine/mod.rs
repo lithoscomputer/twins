@@ -19,15 +19,7 @@ pub fn execute_responses_request(
     request_hash: Option<String>,
 ) -> Result<ExecutionOutcome, OpenAiError> {
     request.validate()?;
-    let context = RequestContext {
-        endpoint: "responses".to_owned(),
-        model: request.model.clone(),
-        stream: request.stream,
-        metadata: request.metadata.clone(),
-        input_text: request.extract_user_text(),
-        instructions_text: request.extract_instruction_text(),
-        request_hash,
-    };
+    let context = responses_context("responses", request, request_hash);
     let scenario = state.take_matching_scenario(namespace, &context);
     let unmatched_error = (scenario.is_none()
         && state.config.scenarios_path.is_some()
@@ -60,6 +52,32 @@ pub fn execute_responses_request(
             transport: TransportOptions::default(),
         },
     )?))
+}
+
+/// Executes a scenario for the Responses input-token endpoint when one matches.
+///
+/// Without a scenario, the caller can use the deterministic token-count
+/// fallback. Scripted utility calls do not advance the generation response ID.
+pub fn execute_input_tokens_request(
+    state: &AppState,
+    namespace: &NamespaceKey,
+    request: &ResponsesRequest,
+    request_hash: Option<String>,
+) -> Result<Option<ExecutionOutcome>, OpenAiError> {
+    request.validate()?;
+    let context = responses_context("responses.input_tokens", request, request_hash);
+    let scenario = state.take_matching_scenario(namespace, &context);
+    if scenario.is_some() {
+        state.log_request(
+            namespace,
+            context,
+            scenario
+                .as_ref()
+                .and_then(|scenario| scenario.scenario_id.clone()),
+        );
+    }
+
+    Ok(scenario.map(|scenario| scenario.execute_for_responses(0, request)))
 }
 
 pub fn execute_chat_request(
@@ -116,6 +134,22 @@ pub fn execute_chat_request(
             transport: TransportOptions::default(),
         },
     )?))
+}
+
+fn responses_context(
+    endpoint: &str,
+    request: &ResponsesRequest,
+    request_hash: Option<String>,
+) -> RequestContext {
+    RequestContext {
+        endpoint: endpoint.to_owned(),
+        model: request.model.clone(),
+        stream: request.stream,
+        metadata: request.metadata.clone(),
+        input_text: request.extract_user_text(),
+        instructions_text: request.extract_instruction_text(),
+        request_hash,
+    }
 }
 
 fn enforce_tool_choice(
