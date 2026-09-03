@@ -175,6 +175,38 @@ fn chat_request(text: &str) -> Value {
     })
 }
 
+fn chat_request_with_reasoning_details(text: &str) -> Value {
+    json!({
+        "model": "deepseek-v4-flash-0731",
+        "messages": [
+            { "role": "user", "content": text },
+            {
+                "role": "assistant",
+                "content": null,
+                "reasoning_details": [{
+                    "type": "reasoning.encrypted",
+                    "id": "reasoning-1",
+                    "data": "AQ=="
+                }],
+                "tool_calls": [{
+                    "id": "call-weather",
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"city\":\"Paris\"}"
+                    }
+                }]
+            },
+            {
+                "role": "tool",
+                "content": "21C and sunny",
+                "tool_call_id": "call-weather"
+            }
+        ],
+        "stream": false
+    })
+}
+
 fn chat_stream_request() -> Value {
     json!({
         "model": "deepseek-v4-flash-0731",
@@ -192,7 +224,7 @@ async fn transcript_replays_json_verbatim_and_matches_by_hash() {
     let proxy = spawn(proxy_config(&upstream, &recording, false)).await;
     let proxy_client = client(&proxy);
     let first = chat_request("First question.");
-    let second = chat_request("Second question.");
+    let second = chat_request_with_reasoning_details("Second question.");
     for request in [&first, &second] {
         let response = proxy_client
             .post_json("/v1/chat/completions", request)
