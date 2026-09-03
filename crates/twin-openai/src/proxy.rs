@@ -1,11 +1,12 @@
 //! Proxy-record mode.
 //!
-//! `/v1/responses` and `/v1/chat/completions` are forwarded to a real
-//! upstream (the client's bearer token is replaced with the configured
-//! upstream key), the response is streamed back verbatim, and every
-//! successful exchange is derived into a scripted scenario appended to the
-//! recording file. The client's bearer token names the recording namespace,
-//! so each test's calls replay later as an ordered per-namespace queue.
+//! The supported `/v1` routes are forwarded to a real upstream, with the
+//! client's bearer token replaced by the configured upstream key. Successful
+//! `/v1/responses` and `/v1/chat/completions` exchanges are derived into
+//! scripted scenarios appended to the recording file. Model discovery and
+//! input-token counts pass through without being recorded. The client's bearer
+//! token names the generation recording namespace, so each test's calls replay
+//! later as an ordered per-namespace queue.
 //!
 //! Failed upstream responses and underivable exchanges are passed through
 //! but not recorded. Admin and debug routes are not mounted in this mode.
@@ -19,7 +20,7 @@ use anyhow::{Context, Result};
 use async_stream::stream;
 use axum::body::{Body, Bytes};
 use axum::extract::State;
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{middleware, Json, Router};
@@ -73,7 +74,12 @@ pub fn router(config: &Config) -> Result<Router> {
     };
 
     let mut v1 = Router::new()
+        .route("/v1/models", get(proxy_models))
         .route("/v1/responses", post(proxy_responses))
+        .route(
+            "/v1/responses/input_tokens",
+            post(proxy_response_input_tokens),
+        )
         .route("/v1/chat/completions", post(proxy_chat));
     if config.require_auth {
         v1 = v1.layer(middleware::from_fn(auth::require_bearer_auth));
@@ -84,6 +90,25 @@ pub fn router(config: &Config) -> Result<Router> {
 
 async fn healthz() -> impl IntoResponse {
     Json(json!({ "status": "ok" }))
+}
+
+async fn proxy_models(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    proxy_unrecorded(state, Method::GET, "/v1/models", &headers, None).await
+}
+
+async fn proxy_response_input_tokens(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_unrecorded(
+        state,
+        Method::POST,
+        "/v1/responses/input_tokens",
+        &headers,
+        Some(body),
+    )
+    .await
 }
 
 async fn proxy_responses(
@@ -123,27 +148,9 @@ async fn proxy_exchange(
         .map(|request| ExchangeShape::from_request(endpoint, &request));
     let hash = request_hash(&body);
 
-    let mut upstream_request = state
-        .client
-        .post(format!("{}{}", state.upstream_url, path))
-        .header(
-            header::AUTHORIZATION,
-            format!("Bearer {}", state.upstream_api_key),
-        )
+    let upstream_request = build_upstream_request(&state, Method::POST, path, headers)
         .header(header::CONTENT_TYPE, "application/json")
         .body(body);
-    // `chatgpt-account-id` and `originator` are the Codex deployment's seat
-    // envelope; forwarding them costs nothing on the platform API.
-    for name in [
-        "openai-organization",
-        "openai-project",
-        "chatgpt-account-id",
-        "originator",
-    ] {
-        if let Some(value) = headers.get(name) {
-            upstream_request = upstream_request.header(name, value);
-        }
-    }
 
     let upstream_response = match upstream_request.send().await {
         Ok(response) => response,
@@ -209,6 +216,64 @@ async fn proxy_exchange(
         }
         passthrough_response(status, content_type, Body::from(body))
     }
+}
+
+async fn proxy_unrecorded(
+    state: ProxyState,
+    method: Method,
+    path: &str,
+    headers: &HeaderMap,
+    body: Option<Bytes>,
+) -> Response {
+    let mut upstream_request = build_upstream_request(&state, method, path, headers);
+    if let Some(body) = body {
+        upstream_request = upstream_request
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body);
+    }
+
+    let upstream_response = match upstream_request.send().await {
+        Ok(response) => response,
+        Err(error) => return upstream_error_response(&error),
+    };
+    let status = upstream_response.status();
+    let content_type = upstream_response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .cloned();
+    let body = match upstream_response.bytes().await {
+        Ok(body) => body,
+        Err(error) => return upstream_error_response(&error),
+    };
+    passthrough_response(status, content_type, Body::from(body))
+}
+
+fn build_upstream_request(
+    state: &ProxyState,
+    method: Method,
+    path: &str,
+    headers: &HeaderMap,
+) -> reqwest::RequestBuilder {
+    let mut request = state
+        .client
+        .request(method, format!("{}{}", state.upstream_url, path))
+        .header(
+            header::AUTHORIZATION,
+            format!("Bearer {}", state.upstream_api_key),
+        );
+    // `chatgpt-account-id` and `originator` are the Codex deployment's seat
+    // envelope; forwarding them costs nothing on the platform API.
+    for name in [
+        "openai-organization",
+        "openai-project",
+        "chatgpt-account-id",
+        "originator",
+    ] {
+        if let Some(value) = headers.get(name) {
+            request = request.header(name, value);
+        }
+    }
+    request
 }
 
 fn stream_and_record(

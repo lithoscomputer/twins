@@ -9,12 +9,32 @@ mod common;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
+use axum::body::Bytes;
+use axum::extract::State;
+use axum::http::HeaderMap;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use twin_openai::config::{Config, Mode, RecordFormat};
 
 const UPSTREAM_KEY: &str = "upstream-secret";
+
+#[derive(Clone, Debug)]
+struct CapturedRequest {
+    operation: String,
+    authorization: Option<String>,
+    organization: Option<String>,
+    project: Option<String>,
+    body: Vec<u8>,
+}
+
+#[derive(Clone, Default)]
+struct CaptureState {
+    requests: Arc<Mutex<Vec<CapturedRequest>>>,
+}
 
 fn recording_path() -> PathBuf {
     std::env::temp_dir().join(format!(
@@ -39,6 +59,63 @@ async fn spawn(config: Config) -> String {
     format!("http://{addr}")
 }
 
+async fn spawn_router(app: Router) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener should bind");
+    let addr: SocketAddr = listener.local_addr().expect("listener should have addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("server should run");
+    });
+    format!("http://{addr}")
+}
+
+fn capture_request(state: &CaptureState, operation: &str, headers: &HeaderMap, body: &Bytes) {
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned)
+    };
+    state
+        .requests
+        .lock()
+        .expect("capture lock should not be poisoned")
+        .push(CapturedRequest {
+            operation: operation.to_owned(),
+            authorization: header("authorization"),
+            organization: header("openai-organization"),
+            project: header("openai-project"),
+            body: body.to_vec(),
+        });
+}
+
+async fn capture_models(State(state): State<CaptureState>, headers: HeaderMap) -> Json<Value> {
+    capture_request(&state, "models", &headers, &Bytes::new());
+    Json(json!({
+        "object": "list",
+        "data": [{
+            "id": "upstream-model",
+            "object": "model",
+            "created": 123,
+            "owned_by": "upstream",
+            "shutdown_date": null
+        }]
+    }))
+}
+
+async fn capture_input_tokens(
+    State(state): State<CaptureState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Json<Value> {
+    capture_request(&state, "input_tokens", &headers, &body);
+    Json(json!({
+        "object": "response.input_tokens",
+        "input_tokens": 321
+    }))
+}
+
 fn client(base_url: &str, bearer: &str) -> common::ApiClient {
     common::ApiClient::new(base_url, Some(bearer.to_owned()), None, None)
         .expect("client should build")
@@ -49,6 +126,14 @@ fn responses_text_request() -> Value {
         "model": "gpt-test",
         "input": "Please reply with a greeting.",
         "stream": false
+    })
+}
+
+fn input_tokens_request() -> Value {
+    json!({
+        "model": "gpt-test",
+        "instructions": "Answer briefly.",
+        "input": "Please reply with a greeting."
     })
 }
 
@@ -212,6 +297,32 @@ async fn proxy_records_and_replays_per_namespace() {
 
     // Drive two "E2E tests" through the proxy, each with its own bearer.
     let test_a = client(&proxy_url, "e2e-a");
+    let via_proxy_models = test_a
+        .get("/v1/models")
+        .send()
+        .await
+        .expect("proxied models call should complete");
+    assert_eq!(via_proxy_models.status(), 200);
+    let proxied_models: Value = via_proxy_models
+        .json()
+        .await
+        .expect("proxied models body should parse");
+    assert_eq!(proxied_models["object"], "list");
+    assert_eq!(proxied_models["data"][0]["id"], "gpt-test");
+
+    let via_proxy_tokens = common::post_json_exchange(
+        &test_a,
+        "/v1/responses/input_tokens",
+        &input_tokens_request(),
+    )
+    .await
+    .expect("proxied input-token call should succeed");
+    assert_eq!(via_proxy_tokens.body["object"], "response.input_tokens");
+    assert!(via_proxy_tokens.body["input_tokens"]
+        .as_u64()
+        .is_some_and(|count| count > 0));
+    let proxied_tokens = via_proxy_tokens.body;
+
     let via_proxy_text =
         common::post_json_exchange(&test_a, "/v1/responses", &responses_text_request())
             .await
@@ -272,6 +383,25 @@ async fn proxy_records_and_replays_per_namespace() {
     .await;
 
     let replay_a = client(&replay_url, "e2e-a");
+    let replayed_models: Value = replay_a
+        .get("/v1/models")
+        .send()
+        .await
+        .expect("replayed models call should complete")
+        .json()
+        .await
+        .expect("replayed models body should parse");
+    assert_eq!(replayed_models, proxied_models);
+
+    let replayed_tokens = common::post_json_exchange(
+        &replay_a,
+        "/v1/responses/input_tokens",
+        &input_tokens_request(),
+    )
+    .await
+    .expect("replayed input-token call should succeed");
+    assert_eq!(replayed_tokens.body, proxied_tokens);
+
     let replayed_text =
         common::post_json_exchange(&replay_a, "/v1/responses", &responses_text_request())
             .await
@@ -565,4 +695,76 @@ async fn proxy_records_a_stream_served_without_a_content_type() {
     );
 
     std::fs::remove_file(&recording).ok();
+}
+
+#[tokio::test]
+async fn utility_proxy_forwards_credentials_headers_and_body() {
+    let captures = CaptureState::default();
+    let upstream_url = spawn_router(
+        Router::new()
+            .route("/v1/models", get(capture_models))
+            .route("/v1/responses/input_tokens", post(capture_input_tokens))
+            .with_state(captures.clone()),
+    )
+    .await;
+    let recording = recording_path();
+    let proxy_url = spawn(Config {
+        mode: Mode::ProxyRecord,
+        upstream_url,
+        upstream_api_key: Some(UPSTREAM_KEY.to_owned()),
+        recording_path: Some(recording.clone()),
+        ..common::test_config()
+    })
+    .await;
+    let client = common::ApiClient::new(
+        proxy_url,
+        Some("client-namespace".to_owned()),
+        Some("org-test".to_owned()),
+        Some("project-test".to_owned()),
+    )
+    .expect("client should build");
+
+    let models = client
+        .get("/v1/models")
+        .send()
+        .await
+        .expect("models request should complete");
+    assert_eq!(models.status(), 200);
+    let models: Value = models.json().await.expect("models body should parse");
+    assert_eq!(models["data"][0]["id"], "upstream-model");
+
+    let token_request = input_tokens_request();
+    let tokens = client
+        .post_json("/v1/responses/input_tokens", &token_request)
+        .await;
+    assert_eq!(tokens.status(), 200);
+    let tokens: Value = tokens.json().await.expect("token body should parse");
+    assert_eq!(tokens["input_tokens"], 321);
+
+    let requests = captures
+        .requests
+        .lock()
+        .expect("capture lock should not be poisoned");
+    assert_eq!(requests.len(), 2);
+    for request in requests.iter() {
+        assert_eq!(
+            request.authorization.as_deref(),
+            Some("Bearer upstream-secret")
+        );
+        assert_eq!(request.organization.as_deref(), Some("org-test"));
+        assert_eq!(request.project.as_deref(), Some("project-test"));
+    }
+    assert_eq!(requests[0].operation, "models");
+    assert!(requests[0].body.is_empty());
+    assert_eq!(requests[1].operation, "input_tokens");
+    let forwarded_body: Value =
+        serde_json::from_slice(&requests[1].body).expect("forwarded body should be JSON");
+    assert_eq!(forwarded_body, token_request);
+    drop(requests);
+
+    let recorded_file: Value =
+        serde_json::from_str(&std::fs::read_to_string(&recording).expect("recording should exist"))
+            .expect("recording should parse");
+    assert_eq!(recorded_file["scenarios"], json!([]));
+    std::fs::remove_file(recording).expect("recording should be removable");
 }

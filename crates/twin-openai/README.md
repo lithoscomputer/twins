@@ -5,13 +5,21 @@ Async Rust fake OpenAI-compatible server for local black-box testing.
 ## Endpoints
 
 - `GET /healthz`
+- `GET /v1/models`
 - `POST /v1/responses`
+- `POST /v1/responses/input_tokens`
 - `POST /v1/chat/completions`
 - `POST /__admin/scenarios`
 - `POST /__admin/reset`
 - `GET /__admin/requests`
 
 `/v1/*` routes require a non-empty bearer token. Scenarios, request logs, and deterministic response IDs are scoped by bearer token so concurrent test clients can share one server safely.
+
+`GET /v1/models` returns one stable `gpt-test` model entry. Generation routes
+continue to accept any non-empty model ID. `POST /v1/responses/input_tokens`
+returns an OpenAI-shaped deterministic estimate. The estimate is one token per
+four bytes of compact request JSON, rounded up, rather than a model-specific
+tokenizer result.
 
 `/__admin/*` routes are unauthenticated by default, but an optional bearer token selects the same namespace as `/v1/*`. Admin requests with a malformed or empty `Authorization` header are rejected.
 
@@ -142,14 +150,17 @@ cargo run -p twin-openai
   token per E2E test (for example `e2e-checkout-flow`). The bearer names the
   recording namespace. The twin replaces it with `OPENAI_API_KEY` when
   forwarding, so no secret ever lands in a recording.
-- `/v1/responses` and `/v1/chat/completions` are forwarded to
-  `TWIN_OPENAI_UPSTREAM_URL` (default `https://api.openai.com`) and streamed
-  back verbatim.
-- Every successful exchange is derived into a scripted scenario appended to
-  the recording file, with ordered ids like `e2e-checkout-flow/0001` and a
-  loose matcher (endpoint + stream). The file is truncated at startup and
-  rewritten atomically after each exchange, so an interrupted run keeps what
-  it captured.
+- `/v1/models`, `/v1/responses`, `/v1/responses/input_tokens`, and
+  `/v1/chat/completions` are forwarded to
+  `TWIN_OPENAI_UPSTREAM_URL` (default `https://api.openai.com`). Response
+  bodies and status codes pass back unchanged.
+- Every successful generation exchange is derived into a scripted scenario
+  appended to the recording file, with ordered ids like
+  `e2e-checkout-flow/0001` and a loose matcher (endpoint + stream). The file is
+  truncated at startup and rewritten atomically after each exchange, so an
+  interrupted run keeps what it captured.
+- Model discovery and input-token counts pass through without being recorded.
+  Twin mode serves deterministic local results for both during replay.
 - Failed upstream responses and underivable exchanges pass through without
   being recorded. Admin and debug routes are not mounted in this mode.
 
