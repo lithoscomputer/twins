@@ -9,13 +9,13 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 use serde_json::{json, Value};
 
 const DEFAULT_LIVE_BASE_URL: &str = "https://api.openai.com";
-const DEFAULT_LIVE_MODEL: &str = "gpt-5-nano-2025-08-07";
+const DEFAULT_LIVE_MODEL: &str = common::cases::DEFAULT_MODEL;
 const OPENAI_API_KEY_ENV: &str = "OPENAI_API_KEY";
 const OPENAI_ORGANIZATION_ENV: &str = "OPENAI_ORGANIZATION";
 const OPENAI_PROJECT_ENV: &str = "OPENAI_PROJECT";
 const LIVE_BASE_URL_ENV: &str = "TWIN_OPENAI_LIVE_BASE_URL";
-const LIVE_MODEL_ENV: &str = "TWIN_OPENAI_LIVE_MODEL";
-const LIVE_IMAGE_URL: &str = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/React-icon.svg/120px-React-icon.svg.png";
+const LIVE_MODEL_ENV: &str = common::cases::MODEL_ENV;
+const LIVE_IMAGE_URL: &str = common::cases::IMAGE_URL;
 const RESPONSES_STREAM_MILESTONES: &[&str] = &[
     "response.created",
     "response.in_progress",
@@ -211,6 +211,170 @@ async fn live_openai_contract_smoke_suite() {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+/// Captures every registry case from the live API, canonicalizes each
+/// exchange (see `common::normalize`), and asserts the shared named
+/// snapshots plus a live-only inventory of out-of-contract fields.
+///
+/// Re-record with `mise run record`. The offline replay suite in
+/// `replay_contract.rs` asserts the same snapshots through the twin.
+#[tokio::test]
+#[ignore = "requires OPENAI_API_KEY and outbound network"]
+async fn live_contract_snapshots() {
+    let Some(config) = LiveOptions::from_env().expect("live config should load") else {
+        eprintln!("skipping live contract snapshots because OPENAI_API_KEY is not set");
+        return;
+    };
+
+    let responses_availability = probe_responses_availability(&config)
+        .await
+        .expect("responses availability probe should complete");
+    let chat_availability = probe_chat_availability(&config)
+        .await
+        .expect("chat availability probe should complete");
+
+    let mut failures = Vec::new();
+    let mut recorded: Vec<(
+        common::cases::ContractCase,
+        Vec<common::fixtures::RecordedTurn>,
+    )> = Vec::new();
+
+    for case in common::cases::all_cases() {
+        let availability = match case.endpoint {
+            common::cases::Endpoint::Responses => &responses_availability,
+            common::cases::Endpoint::ChatCompletions => &chat_availability,
+        };
+        if let SurfaceAvailability::Blocked(reason) = availability {
+            eprintln!("skipping {}: {reason}", case.id);
+            continue;
+        }
+
+        match capture_live_case(&config, &case).await {
+            Ok(turns) => {
+                eprintln!("captured: {}", case.id);
+                recorded.push((case, turns));
+            }
+            Err(error) => {
+                eprintln!("capture failed: {}: {error:#}", case.id);
+                failures.push(format!("{}: capture failed: {error:#}", case.id));
+            }
+        }
+    }
+
+    if recorded.is_empty() && failures.is_empty() {
+        eprintln!("skipping live contract snapshots because no live surfaces are accessible");
+        return;
+    }
+
+    if common::fixtures::recording_enabled() {
+        match common::fixtures::write_fixtures(&recorded) {
+            Ok(()) => eprintln!(
+                "wrote scenario fixtures to {}",
+                common::fixtures::scenarios_path().display()
+            ),
+            Err(error) => failures.push(format!("fixture recording failed: {error:#}")),
+        }
+    }
+
+    for (_, turns) in &recorded {
+        for turn in turns {
+            if let Err(failure) = common::normalize::assert_named_snapshot(
+                &turn.snapshot_name,
+                &turn.canonical.canonical,
+            ) {
+                failures.push(failure);
+            }
+            let extras = json!(turn.canonical.extras);
+            if let Err(failure) = common::normalize::assert_named_snapshot(
+                &format!("{}__live_extras", turn.snapshot_name),
+                &extras,
+            ) {
+                failures.push(failure);
+            }
+        }
+    }
+
+    if failures.is_empty() {
+        return;
+    }
+
+    panic!(
+        "live contract snapshots detected drift:\n{}",
+        failures
+            .iter()
+            .map(|failure| format!("- {failure}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+async fn capture_live_case(
+    config: &LiveOptions,
+    case: &common::cases::ContractCase,
+) -> Result<Vec<common::fixtures::RecordedTurn>> {
+    let request = (case.build_request)(&config.model);
+    let mut turns = Vec::new();
+    let first_body =
+        capture_live_turn(config, case, case.id.to_owned(), request, &mut turns).await?;
+
+    if let Some(follow_up) = case.follow_up {
+        let first_body = first_body.context("continuation cases need a non-stream first turn")?;
+        let second_request = follow_up(&config.model, &first_body);
+        capture_live_turn(
+            config,
+            case,
+            format!("{}__turn2", case.id),
+            second_request,
+            &mut turns,
+        )
+        .await?;
+    }
+
+    Ok(turns)
+}
+
+async fn capture_live_turn(
+    config: &LiveOptions,
+    case: &common::cases::ContractCase,
+    snapshot_name: String,
+    request: Value,
+    turns: &mut Vec<common::fixtures::RecordedTurn>,
+) -> Result<Option<Value>> {
+    if case.stream {
+        let exchange =
+            common::post_sse_exchange(&config.api, case.endpoint.path(), &request).await?;
+        let canonical = common::normalize::canonical_stream_exchange(
+            case,
+            exchange.status,
+            exchange.content_type.as_deref(),
+            &exchange.transcript,
+        );
+        turns.push(common::fixtures::RecordedTurn {
+            snapshot_name,
+            request,
+            canonical,
+            raw: common::RawExchange::Stream(exchange.transcript.events),
+        });
+        Ok(None)
+    } else {
+        let exchange =
+            common::post_json_exchange(&config.api, case.endpoint.path(), &request).await?;
+        let canonical = common::normalize::canonical_json_exchange(
+            case,
+            exchange.status,
+            exchange.content_type.as_deref(),
+            &exchange.body,
+        );
+        let body = exchange.body.clone();
+        turns.push(common::fixtures::RecordedTurn {
+            snapshot_name,
+            request,
+            canonical,
+            raw: common::RawExchange::Json(exchange.body),
+        });
+        Ok(Some(body))
+    }
 }
 
 impl LiveOptions {

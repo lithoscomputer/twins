@@ -203,7 +203,7 @@ impl AppState {
             .expect("namespaces lock")
             .insert(
                 namespace.clone(),
-                NamespaceState::with_scenarios(self.inner.scenario_template.clone()),
+                NamespaceState::with_scenarios(self.template_for(namespace)),
             );
     }
 
@@ -239,7 +239,24 @@ impl AppState {
     ) -> &'a mut NamespaceState {
         namespaces
             .entry(namespace.clone())
-            .or_insert_with(|| NamespaceState::with_scenarios(self.inner.scenario_template.clone()))
+            .or_insert_with(|| NamespaceState::with_scenarios(self.template_for(namespace)))
+    }
+
+    /// Startup-template scenarios seeded into a namespace: scenarios without
+    /// a `namespace` seed everywhere, namespaced scenarios seed only their
+    /// own bearer-token namespace.
+    fn template_for(&self, namespace: &NamespaceKey) -> Vec<Scenario> {
+        self.inner
+            .scenario_template
+            .iter()
+            .filter(|scenario| match &scenario.namespace {
+                None => true,
+                Some(token) => {
+                    matches!(namespace, NamespaceKey::Bearer(bearer) if bearer == token)
+                }
+            })
+            .cloned()
+            .collect()
     }
 }
 

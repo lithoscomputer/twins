@@ -1,4 +1,4 @@
-use axum::extract::rejection::JsonRejection;
+use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::header::RETRY_AFTER;
 use axum::http::HeaderMap;
@@ -17,14 +17,17 @@ use crate::state::AppState;
 pub async fn create_chat_completion(
     State(state): State<AppState>,
     headers: HeaderMap,
-    payload: Result<Json<ChatCompletionsRequest>, JsonRejection>,
+    body: Bytes,
 ) -> impl IntoResponse {
     let namespace = match auth::openai_request_namespace(&headers, state.config.require_auth) {
         Ok(namespace) => namespace,
         Err(response) => return response,
     };
 
-    let request = match payload {
+    // The raw bytes are parsed twice on purpose: `Json::from_bytes` keeps
+    // the exact rejection semantics, and the hash of the canonicalized body
+    // is what transcript scenarios match on.
+    let request = match Json::<ChatCompletionsRequest>::from_bytes(&body) {
         Ok(Json(request)) => request,
         Err(rejection) => {
             return super::models::OpenAiError::from_json_rejection(&rejection)
@@ -32,8 +35,9 @@ pub async fn create_chat_completion(
                 .into_response();
         }
     };
+    let request_hash = crate::record::request_hash(&body);
 
-    match execute_chat_request(&state, &namespace, &request) {
+    match execute_chat_request(&state, &namespace, &request, request_hash) {
         Ok(ExecutionOutcome::Success(success)) => {
             if success.transport.delay_before_headers_ms > 0 {
                 sleep(Duration::from_millis(
@@ -67,6 +71,9 @@ pub async fn create_chat_completion(
                 );
             }
             response
+        }
+        Ok(ExecutionOutcome::Transcript(outcome)) => {
+            crate::sse::transcript_response(outcome).into_response()
         }
         Ok(ExecutionOutcome::Hang {
             delay_before_headers_ms,

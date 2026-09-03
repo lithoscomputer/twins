@@ -1,0 +1,24 @@
+[tools]
+rust = { version = "1.95.0", components = "rustfmt,clippy" }
+"cargo:cargo-insta" = "1.48.0"
+
+[tasks.fmt]
+description = "Check formatting"
+run = "cargo fmt --check --all"
+
+[tasks.lint]
+description = "Run clippy with warnings denied"
+run = "cargo clippy --workspace --all-targets --locked -- -D warnings"
+
+[tasks.test]
+description = "Run the offline test suite"
+run = "cargo test --workspace --locked"
+
+[tasks.ci]
+description = "Run every CI check"
+depends = ["fmt", "lint", "test"]
+
+[tasks.record]
+description = "Re-record live OpenAI captures and regenerate scenario fixtures"
+env = { TWIN_OPENAI_RECORD_FIXTURES = "1" }
+run = "cargo insta test --test live_openai_contract --accept -- --ignored"

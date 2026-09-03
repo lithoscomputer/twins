@@ -1,0 +1,32 @@
+---
+source: crates/twin-openai/tests/common/normalize.rs
+---
+{
+  "status": 200,
+  "content_type": "text/event-stream",
+  "milestones": [
+    "role",
+    "tool_call_delta",
+    "finish[tool_calls]",
+    "usage",
+    "done"
+  ],
+  "assembled": {
+    "content": null,
+    "tool_calls": [
+      {
+        "name": "lookup_weather",
+        "arguments": {
+          "city": "Boston"
+        }
+      }
+    ],
+    "finish_reason": "tool_calls",
+    "usage": {
+      "prompt_tokens": "[int]",
+      "completion_tokens": "[int]",
+      "total_tokens": "[int]"
+    }
+  },
+  "done": true
+}

@@ -26,6 +26,19 @@ pub fn openai_request_namespace(
     }
 }
 
+/// Bearer token for proxy-record mode: the token names the recording
+/// namespace and is never forwarded upstream.
+pub fn proxy_bearer_token(
+    headers: &HeaderMap,
+    require_auth: bool,
+) -> Result<Option<String>, Response> {
+    match bearer_token_from_headers(headers) {
+        Ok(Some(token)) => Ok(Some(token)),
+        Ok(None) if !require_auth => Ok(None),
+        Ok(None) | Err(()) => Err(missing_bearer_token_response()),
+    }
+}
+
 pub fn admin_request_namespace(headers: &HeaderMap) -> Result<NamespaceKey, Response> {
     match bearer_token_from_headers(headers) {
         Ok(Some(token)) => Ok(NamespaceKey::Bearer(token)),
