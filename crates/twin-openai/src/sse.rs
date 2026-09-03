@@ -174,36 +174,49 @@ pub fn responses_sse_response(plan: &ResponsePlan, transport: TransportOptions) 
     }
 
     for tool_call in &plan.tool_calls {
-        let item_id = format!("fc_{}", tool_call.id);
+        // The added item carries an empty payload; the done item carries the
+        // whole call. Between them the payload streams in one delta, under
+        // the event names each item type uses.
+        let mut added = ResponsePlan::responses_tool_call_item(tool_call);
+        let (payload_key, delta_event, done_event) = if tool_call.custom {
+            (
+                "input",
+                "response.custom_tool_call_input.delta",
+                "response.custom_tool_call_input.done",
+            )
+        } else {
+            (
+                "arguments",
+                "response.function_call_arguments.delta",
+                "response.function_call_arguments.done",
+            )
+        };
+        let item_id = added["id"].clone();
+        let payload = ResponsePlan::tool_call_arguments_text(tool_call);
+        added[payload_key] = json!("");
         events.push(sse_event(
             "response.output_item.added",
             &json!({
                 "type": "response.output_item.added",
-                "item": {
-                    "id": item_id,
-                    "type": "function_call",
-                    "call_id": tool_call.id,
-                    "name": tool_call.name,
-                    "arguments": "",
-                },
+                "item": added,
                 "output_index": next_output_index,
             }),
         ));
         events.push(sse_event(
-            "response.function_call_arguments.delta",
+            delta_event,
             &json!({
-                "type": "response.function_call_arguments.delta",
+                "type": delta_event,
                 "item_id": item_id,
-                "delta": ResponsePlan::tool_call_arguments_text(tool_call),
+                "delta": payload,
                 "output_index": next_output_index,
             }),
         ));
         events.push(sse_event(
-            "response.function_call_arguments.done",
+            done_event,
             &json!({
-                "type": "response.function_call_arguments.done",
+                "type": done_event,
                 "item_id": item_id,
-                "arguments": ResponsePlan::tool_call_arguments_text(tool_call),
+                payload_key: payload,
                 "output_index": next_output_index,
             }),
         ));
@@ -211,13 +224,7 @@ pub fn responses_sse_response(plan: &ResponsePlan, transport: TransportOptions) 
             "response.output_item.done",
             &json!({
                 "type": "response.output_item.done",
-                "item": {
-                    "id": item_id,
-                    "type": "function_call",
-                    "call_id": tool_call.id,
-                    "name": tool_call.name,
-                    "arguments": ResponsePlan::tool_call_arguments_text(tool_call),
-                },
+                "item": ResponsePlan::responses_tool_call_item(tool_call),
                 "output_index": next_output_index,
             }),
         ));
@@ -225,10 +232,15 @@ pub fn responses_sse_response(plan: &ResponsePlan, transport: TransportOptions) 
     }
 
     if !transport.malformed_sse {
+        let terminal = if plan.truncated {
+            "response.incomplete"
+        } else {
+            "response.completed"
+        };
         events.push(sse_event(
-            "response.completed",
+            terminal,
             &json!({
-                "type": "response.completed",
+                "type": terminal,
                 "response": plan.responses_json(),
             }),
         ));
@@ -323,7 +335,7 @@ pub fn chat_sse_response(
             "choices": [{
                 "index": 0,
                 "delta": {},
-                "finish_reason": if plan.tool_calls.is_empty() { "stop" } else { "tool_calls" },
+                "finish_reason": plan.chat_finish_reason(),
             }]
         })));
         if include_usage {

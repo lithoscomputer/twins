@@ -43,11 +43,20 @@ impl ResponsesRequest {
         }
     }
 
+    /// The instructions the request carries: the top-level `instructions`
+    /// field, followed by every `system` and `developer` input item. Clients
+    /// that hoist their system prompt into `instructions` and clients that
+    /// send it as a message both land here, so a matcher sees either.
     pub fn extract_instruction_text(&self) -> String {
-        self.instructions
+        let mut pieces: Vec<String> = self
+            .instructions
             .as_deref()
             .map(normalize_whitespace)
-            .unwrap_or_default()
+            .filter(|text| !text.is_empty())
+            .into_iter()
+            .collect();
+        pieces.extend(self.input.extract_instruction_texts());
+        normalize_whitespace(&pieces.join(" "))
     }
 
     pub fn response_format(&self) -> Option<ResponseFormat> {
@@ -130,6 +139,20 @@ pub enum ResponseInput {
 }
 
 impl ResponseInput {
+    fn extract_instruction_texts(&self) -> Vec<String> {
+        match self {
+            Self::Items(items) => items
+                .iter()
+                .filter(|item| {
+                    matches!(item.role.as_deref(), Some("system" | "developer"))
+                        && !item.kind().is_tool_output()
+                })
+                .flat_map(|item| item.content.extract_texts())
+                .collect(),
+            Self::Text(_) | Self::Empty => Vec::new(),
+        }
+    }
+
     fn extract_text(&self) -> String {
         match self {
             Self::Text(text) => normalize_whitespace(text),
@@ -327,7 +350,10 @@ fn validate_function_call_output_item(item: &InputItem) -> Result<(), OpenAiErro
         ));
     }
 
-    if item.output.as_deref().is_none_or(str::is_empty) {
+    // An empty output is legal: the live API accepts `"output": ""` for a
+    // tool that produced nothing, verified against gpt-5.4-mini on
+    // 2026-09-03. Only a missing field is rejected.
+    if item.output.is_none() {
         return Err(OpenAiError::invalid_request(
             "input",
             "function_call_output items require output",

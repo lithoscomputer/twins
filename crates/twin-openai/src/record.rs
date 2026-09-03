@@ -100,10 +100,14 @@ pub fn derive_script(
             .tool_calls
             .into_iter()
             .map(|tool_call| {
-                json!({
+                let mut entry = json!({
                     "name": tool_call.name,
                     "arguments": tool_call.arguments,
-                })
+                });
+                if tool_call.custom {
+                    entry["kind"] = json!("custom");
+                }
+                entry
             })
             .collect();
         script.insert("tool_calls".to_owned(), Value::Array(tool_calls));
@@ -164,6 +168,8 @@ struct Observation {
 struct ObservedToolCall {
     name: String,
     arguments: Value,
+    /// A `custom_tool_call` item, whose payload is free-form text.
+    custom: bool,
 }
 
 fn observe_body(shape: ExchangeShape, body: &Value) -> Result<Observation> {
@@ -204,6 +210,22 @@ fn observe_responses_body(shape: ExchangeShape, body: &Value) -> Result<Observat
                 observation.tool_calls.push(ObservedToolCall {
                     name: name.to_owned(),
                     arguments: parse_arguments(arguments),
+                    custom: false,
+                });
+            }
+            Some("custom_tool_call") => {
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .context("custom_tool_call output item did not contain a name")?;
+                let input = item
+                    .get("input")
+                    .and_then(Value::as_str)
+                    .context("custom_tool_call output item did not contain input")?;
+                observation.tool_calls.push(ObservedToolCall {
+                    name: name.to_owned(),
+                    arguments: Value::String(input.to_owned()),
+                    custom: true,
                 });
             }
             _ => {}
@@ -272,6 +294,7 @@ fn observe_chat_body(shape: ExchangeShape, body: &Value) -> Result<Observation> 
         observation.tool_calls.push(ObservedToolCall {
             name: name.to_owned(),
             arguments: parse_arguments(arguments),
+            custom: false,
         });
     }
 
@@ -303,7 +326,10 @@ fn observe_responses_stream(
     events: &[RecordedSseEvent],
 ) -> Result<Observation> {
     for event in events {
-        if event.event.as_deref() != Some("response.completed") {
+        if !matches!(
+            event.event.as_deref(),
+            Some("response.completed" | "response.incomplete")
+        ) {
             continue;
         }
         let data: Value = serde_json::from_str(&event.data)
@@ -375,6 +401,7 @@ fn observe_chat_stream(shape: ExchangeShape, events: &[RecordedSseEvent]) -> Res
         .map(|(name, arguments)| ObservedToolCall {
             name,
             arguments: parse_arguments(&arguments),
+            custom: false,
         })
         .collect();
 

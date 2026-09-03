@@ -36,6 +36,7 @@ pub fn build_default_response_plan(
         reasoning,
         tool_calls: Vec::new(),
         usage: TokenUsage::new(input_tokens, 5),
+        truncated: false,
     }
 }
 
@@ -74,6 +75,7 @@ pub fn build_default_chat_plan(
         reasoning,
         tool_calls: Vec::new(),
         usage: TokenUsage::new(input_tokens, 5),
+        truncated: false,
     }
 }
 
