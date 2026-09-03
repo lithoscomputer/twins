@@ -250,6 +250,8 @@ pub struct ContentPart {
     #[serde(default)]
     pub image_url: Option<String>,
     #[serde(default)]
+    pub detail: Option<String>,
+    #[serde(default)]
     pub file_url: Option<String>,
     #[serde(default)]
     pub file_data: Option<String>,

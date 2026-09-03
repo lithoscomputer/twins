@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use super::failures::{
     ErrorOutcome, ExecutionOutcome, SuccessOutcome, TranscriptBody, TranscriptOutcome,
@@ -79,6 +79,8 @@ pub enum ScenarioScript {
     Raw {
         status: u16,
         content_type: Option<String>,
+        #[serde(default)]
+        headers: BTreeMap<String, String>,
         chunks: Vec<RawChunk>,
         delay_before_headers_ms: Option<u64>,
     },
@@ -210,11 +212,13 @@ impl Scenario {
             ScenarioScript::Raw {
                 status,
                 content_type,
+                headers,
                 chunks,
                 delay_before_headers_ms,
             } => ExecutionOutcome::Raw(raw_outcome(
                 *status,
                 content_type.clone(),
+                headers.clone(),
                 chunks.clone(),
                 *delay_before_headers_ms,
             )),
@@ -289,11 +293,13 @@ impl Scenario {
             ScenarioScript::Raw {
                 status,
                 content_type,
+                headers,
                 chunks,
                 delay_before_headers_ms,
             } => ExecutionOutcome::Raw(raw_outcome(
                 *status,
                 content_type.clone(),
+                headers.clone(),
                 chunks.clone(),
                 *delay_before_headers_ms,
             )),
@@ -358,12 +364,14 @@ fn transcript_outcome(
 fn raw_outcome(
     status: u16,
     content_type: Option<String>,
+    headers: BTreeMap<String, String>,
     chunks: Vec<RawChunk>,
     delay_before_headers_ms: Option<u64>,
 ) -> RawOutcome {
     RawOutcome {
         status: StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
         content_type,
+        headers,
         chunks,
         delay_before_headers_ms: delay_before_headers_ms.unwrap_or_default(),
     }
