@@ -70,6 +70,9 @@ pub async fn create_response(
         Ok(ExecutionOutcome::Transcript(outcome)) => {
             crate::sse::transcript_response(outcome).into_response()
         }
+        Ok(ExecutionOutcome::Raw(outcome)) => crate::transport::raw_response(outcome)
+            .await
+            .into_response(),
         Ok(ExecutionOutcome::Hang {
             delay_before_headers_ms,
         }) => {
