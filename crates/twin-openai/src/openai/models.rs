@@ -686,6 +686,7 @@ pub struct ChatMessage {
     pub role: String,
     pub content: Option<Value>,
     pub reasoning_content: Option<String>,
+    pub reasoning_details: Option<Value>,
     pub tool_call_id: Option<String>,
     pub tool_calls: Option<Vec<ChatMessageToolCall>>,
 }
@@ -728,6 +729,14 @@ impl ChatMessage {
                 .reasoning_content
                 .as_deref()
                 .is_some_and(|reasoning| !reasoning.trim().is_empty())
+                || self
+                    .reasoning_details
+                    .as_ref()
+                    .is_some_and(|details| match details {
+                        Value::Null => false,
+                        Value::Array(entries) => !entries.is_empty(),
+                        _ => true,
+                    })
                 || self
                     .content
                     .as_ref()

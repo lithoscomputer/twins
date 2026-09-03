@@ -1,0 +1,40 @@
+---
+source: crates/twin-openai/tests/common/normalize.rs
+---
+{
+  "status": 200,
+  "content_type": "text/event-stream",
+  "milestones": [
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added[reasoning]",
+    "response.output_item.done[reasoning]",
+    "response.output_item.added[function_call]",
+    "response.function_call_arguments.delta",
+    "response.function_call_arguments.done",
+    "response.output_item.done[function_call]",
+    "response.completed"
+  ],
+  "completed": {
+    "id": "[id]",
+    "object": "response",
+    "model": "gpt-5-nano-2025-08-07",
+    "status": "completed",
+    "output": [
+      {
+        "id": "[id]",
+        "type": "function_call",
+        "call_id": "[id]",
+        "name": "lookup_weather",
+        "arguments": {
+          "city": "Boston"
+        }
+      }
+    ],
+    "usage": {
+      "input_tokens": "[int]",
+      "output_tokens": "[int]",
+      "total_tokens": "[int]"
+    }
+  }
+}

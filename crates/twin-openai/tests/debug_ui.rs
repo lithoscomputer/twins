@@ -6,7 +6,7 @@ use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::process::Command as TokioCommand;
 use tokio::time::{timeout, Duration};
-use twin_openai::config::Config;
+use twin_openai::config::{Config, RecordFormat};
 
 #[tokio::test]
 async fn debug_html_page_serves_valid_html_on_empty_state() {
@@ -226,6 +226,13 @@ async fn debug_routes_not_accessible_when_admin_disabled() {
         request_log_path: None,
         scenarios_path: None,
         allow_unmatched: false,
+        mode: twin_openai::config::Mode::Twin,
+        upstream_url: "https://api.openai.com".to_owned(),
+        upstream_responses_path: None,
+        upstream_api_key: None,
+        recording_path: None,
+        record_format: RecordFormat::Semantic,
+        recording_append: false,
     })
     .expect("app should build");
 

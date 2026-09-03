@@ -4,6 +4,10 @@
     reason = "Shared test helpers stay public within the test crate and not every helper is used everywhere."
 )]
 
+pub mod cases;
+pub mod fixtures;
+pub mod normalize;
+
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,7 +20,7 @@ use reqwest::{Client, ClientBuilder};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use twin_openai::config::Config;
+use twin_openai::config::{Config, RecordFormat};
 
 pub struct TestServer {
     pub base_url: String,
@@ -72,15 +76,20 @@ pub fn test_http_client() -> Result<Client> {
 }
 
 pub async fn spawn_server() -> Result<TestServer> {
+    spawn_server_with_scenarios(None).await
+}
+
+/// Spawn the twin with an optional startup scenario template. A template
+/// puts the server in strict fixture mode: unmatched requests fail with
+/// `scenario_not_found`.
+pub async fn spawn_server_with_scenarios(
+    scenarios_path: Option<std::path::PathBuf>,
+) -> Result<TestServer> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr: SocketAddr = listener.local_addr()?;
     let app = twin_openai::build_app_with_config(Config {
-        bind_addr: "127.0.0.1:0".parse().expect("valid addr"),
-        require_auth: true,
-        enable_admin: true,
-        request_log_path: None,
-        scenarios_path: None,
-        allow_unmatched: false,
+        scenarios_path,
+        ..test_config()
     })
     .expect("app should build");
 
@@ -89,6 +98,25 @@ pub async fn spawn_server() -> Result<TestServer> {
     });
 
     TestServer::new(format!("http://{addr}"), next_bearer_token())
+}
+
+/// Baseline twin-mode config for in-process test servers.
+pub fn test_config() -> Config {
+    Config {
+        bind_addr: "127.0.0.1:0".parse().expect("valid addr"),
+        require_auth: true,
+        enable_admin: true,
+        request_log_path: None,
+        scenarios_path: None,
+        allow_unmatched: false,
+        mode: twin_openai::config::Mode::Twin,
+        upstream_url: "https://api.openai.com".to_owned(),
+        upstream_responses_path: None,
+        upstream_api_key: None,
+        recording_path: None,
+        record_format: RecordFormat::Semantic,
+        recording_append: false,
+    }
 }
 
 fn next_bearer_token() -> String {
@@ -441,6 +469,71 @@ impl TestServer {
 
         decode_http_response(&response)
     }
+}
+
+/// A raw captured exchange, kept for fixture derivation during recording.
+pub enum RawExchange {
+    Json(Value),
+    Stream(Vec<ParsedSseEvent>),
+}
+
+pub struct JsonExchange {
+    pub status: u16,
+    pub content_type: Option<String>,
+    pub body: Value,
+}
+
+pub struct SseExchange {
+    pub status: u16,
+    pub content_type: Option<String>,
+    pub transcript: ParsedSseTranscript,
+}
+
+pub async fn post_json_exchange(
+    client: &ApiClient,
+    path: &str,
+    body: &Value,
+) -> Result<JsonExchange> {
+    let response = client.post_json_recorded(path, body).await;
+    anyhow::ensure!(
+        response.status == reqwest::StatusCode::OK,
+        "{path} returned {}: {}",
+        response.status,
+        String::from_utf8_lossy(&response.body)
+    );
+    let parsed = serde_json::from_slice(&response.body).map_err(|error| {
+        anyhow::anyhow!(
+            "{path} response body was not valid JSON ({error}): {}",
+            String::from_utf8_lossy(&response.body)
+        )
+    })?;
+
+    Ok(JsonExchange {
+        status: response.status.as_u16(),
+        content_type: response.headers.get("content-type").cloned(),
+        body: parsed,
+    })
+}
+
+pub async fn post_sse_exchange(
+    client: &ApiClient,
+    path: &str,
+    body: &Value,
+) -> Result<SseExchange> {
+    let response = client.post_json_recorded(path, body).await;
+    anyhow::ensure!(
+        response.status == reqwest::StatusCode::OK,
+        "{path} returned {}: {}",
+        response.status,
+        String::from_utf8_lossy(&response.body)
+    );
+    let transcript = parse_sse_transcript(&response.body).map_err(anyhow::Error::msg)?;
+
+    Ok(SseExchange {
+        status: response.status.as_u16(),
+        content_type: response.headers.get("content-type").cloned(),
+        transcript,
+    })
 }
 
 pub fn parse_sse_transcript(body: &[u8]) -> Result<ParsedSseTranscript, String> {

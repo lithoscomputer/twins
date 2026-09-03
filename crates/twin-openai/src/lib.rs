@@ -10,6 +10,8 @@ pub mod debug_ui;
 pub mod engine;
 pub mod logs;
 pub mod openai;
+pub mod proxy;
+pub mod record;
 pub mod sse;
 pub mod state;
 
@@ -23,5 +25,6 @@ pub fn build_app() -> Result<Router> {
 }
 
 pub fn build_app_with_config(config: Config) -> Result<Router> {
-    Ok(app::router(AppState::new(config)?))
+    config.validate()?;
+    app::router(AppState::new(config)?)
 }

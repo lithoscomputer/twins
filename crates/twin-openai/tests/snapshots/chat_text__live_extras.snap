@@ -1,0 +1,11 @@
+---
+source: crates/twin-openai/tests/common/normalize.rs
+---
+[
+  "body.choices.message.annotations",
+  "body.choices.message.refusal",
+  "body.service_tier",
+  "body.system_fingerprint",
+  "body.usage.completion_tokens_details",
+  "body.usage.prompt_tokens_details"
+]

@@ -16,6 +16,7 @@ pub fn execute_responses_request(
     state: &AppState,
     namespace: &NamespaceKey,
     request: &ResponsesRequest,
+    request_hash: Option<String>,
 ) -> Result<ExecutionOutcome, OpenAiError> {
     request.validate()?;
     let context = RequestContext {
@@ -25,6 +26,7 @@ pub fn execute_responses_request(
         metadata: request.metadata.clone(),
         input_text: request.extract_user_text(),
         instructions_text: request.extract_instruction_text(),
+        request_hash,
     };
     let scenario = state.take_matching_scenario(namespace, &context);
     let unmatched_error = (scenario.is_none()
@@ -64,6 +66,7 @@ pub fn execute_chat_request(
     state: &AppState,
     namespace: &NamespaceKey,
     request: &ChatCompletionsRequest,
+    request_hash: Option<String>,
 ) -> Result<ExecutionOutcome, OpenAiError> {
     request.validate()?;
     let context = RequestContext {
@@ -73,6 +76,7 @@ pub fn execute_chat_request(
         metadata: serde_json::Map::new(),
         input_text: request.extract_user_text(),
         instructions_text: request.extract_instruction_text(),
+        request_hash,
     };
     let scenario = state.take_matching_scenario(namespace, &context);
     let unmatched_error = (scenario.is_none()

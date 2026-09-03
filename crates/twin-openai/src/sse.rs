@@ -4,8 +4,9 @@ use axum::http::{header, HeaderValue, Response, StatusCode};
 use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
 
-use crate::engine::failures::TransportOptions;
+use crate::engine::failures::{TranscriptBody, TranscriptOutcome, TransportOptions};
 use crate::engine::plan::ResponsePlan;
+use crate::engine::scenario::TranscriptEvent;
 
 pub fn responses_sse_response(plan: &ResponsePlan, transport: TransportOptions) -> Response<Body> {
     let mut events = Vec::new();
@@ -382,4 +383,59 @@ fn sse_event(event: &str, data: &Value) -> String {
 
 fn chat_chunk(data: &Value) -> String {
     format!("data: {data}\n\n")
+}
+
+/// Renders a recorded transcript exchange back exactly as captured.
+///
+/// A JSON transcript goes back as one body; an SSE transcript goes back as
+/// its recorded events in order, one chunk per event, so a streaming client
+/// sees the same event granularity the original provider sent.
+pub fn transcript_response(outcome: TranscriptOutcome) -> Response<Body> {
+    match outcome.body {
+        TranscriptBody::Json(body) => {
+            let content_type = outcome
+                .content_type
+                .unwrap_or_else(|| "application/json".to_owned());
+            let rendered = body.to_string();
+            build_response(outcome.status, &content_type, Body::from(rendered))
+        }
+        TranscriptBody::Events(events) => {
+            let content_type = outcome
+                .content_type
+                .unwrap_or_else(|| "text/event-stream".to_owned());
+            let body = Body::from_stream(stream! {
+                for event in events {
+                    yield Ok::<_, std::io::Error>(render_transcript_event(&event));
+                }
+            });
+            build_response(outcome.status, &content_type, body)
+        }
+    }
+}
+
+fn build_response(status: StatusCode, content_type: &str, body: Body) -> Response<Body> {
+    let mut response = Response::new(body);
+    *response.status_mut() = status;
+    if let Ok(value) = content_type.parse() {
+        response.headers_mut().insert(header::CONTENT_TYPE, value);
+    }
+    response
+}
+
+/// One SSE event as its wire text. Multi-line data becomes one `data:` line
+/// per line, which is how the SSE encoding carries embedded newlines.
+fn render_transcript_event(event: &TranscriptEvent) -> String {
+    let mut rendered = String::new();
+    if let Some(name) = &event.event {
+        rendered.push_str("event: ");
+        rendered.push_str(name);
+        rendered.push('\n');
+    }
+    for line in event.data.split('\n') {
+        rendered.push_str("data: ");
+        rendered.push_str(line);
+        rendered.push('\n');
+    }
+    rendered.push('\n');
+    rendered
 }

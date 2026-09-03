@@ -1,2 +1,3 @@
 /target/
 .DS_Store
+/crates/twin-openai/fixtures/raw/

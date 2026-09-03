@@ -1,0 +1,114 @@
+name: Nightly OpenAI drift
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  record:
+    name: Record and diff
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Push the drift branch.
+      pull-requests: write # Open and close drift PRs.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job pushes a drift branch, so it keeps the token.
+          persist-credentials: true
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+
+      # Re-record live captures. The live suite soft-skips when the key is
+      # missing or the account lacks scopes/quota, so those cases end the job
+      # cleanly instead of producing a bogus drift PR. The step continues on
+      # error because snapshot updates are written even when the smoke suite
+      # also detects drift, and that combination is exactly when the PR
+      # matters most.
+      - id: record
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: mise run record
+
+      - id: diff
+        run: |
+          find crates/twin-openai/tests/snapshots -name '*.snap.new' -delete
+          if git status --porcelain -- crates/twin-openai/tests/snapshots | grep -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            # Captured text varies per run; without snapshot changes the
+            # fixture churn is noise, so drop it.
+            git checkout -- crates/twin-openai/fixtures
+          fi
+
+      # The drift PR's green/red signal: can the twin reproduce the freshly
+      # recorded contract? Runs the offline replay suite against the new
+      # snapshots and fixtures.
+      - id: replay
+        if: steps.diff.outputs.changed == 'true'
+        continue-on-error: true
+        run: mise run test
+
+      - if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPLAY_OUTCOME: ${{ steps.replay.outcome }}
+          RECORD_OUTCOME: ${{ steps.record.outcome }}
+        run: |
+          set -euo pipefail
+          branch="nightly/openai-drift-$(date -u +%Y-%m-%d-%H%M)"
+          changed_cases="$(git status --porcelain -- crates/twin-openai/tests/snapshots \
+            | awk '{print $NF}' | xargs -n1 basename | sed 's/\.snap$//' | sort | sed 's/^/- /')"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add crates/twin-openai/tests/snapshots crates/twin-openai/fixtures/scenarios.json
+          git commit -m "Update recorded OpenAI contract fixtures"
+          git push origin "$branch"
+
+          if [ "$REPLAY_OUTCOME" = "success" ]; then
+            replay_line="**Replay: passing.** The twin already reproduces the new shape; this is content-only churn and should be cheap to merge."
+          else
+            replay_line="**Replay: FAILING.** The twin cannot reproduce the new live shape. This is real protocol drift; the engine needs work before this merges."
+          fi
+          if [ "$RECORD_OUTCOME" != "success" ]; then
+            record_line="Note: the live smoke suite also reported failures during recording; see the workflow logs."
+          else
+            record_line=""
+          fi
+
+          pr_url="$(gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "Nightly OpenAI drift: recorded contract changed" \
+            --body "$(printf '%s\n\n%s\n\nChanged snapshots:\n%s\n\n%s\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n' \
+              "The nightly re-record against the live OpenAI API produced snapshot changes." \
+              "$replay_line" \
+              "$changed_cases" \
+              "$record_line")")"
+
+          # Close older still-open drift PRs as superseded.
+          current_number="${pr_url##*/}"
+          gh pr list --state open --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("nightly/openai-drift-")) | .number' \
+            | while read -r number; do
+                if [ "$number" != "$current_number" ]; then
+                  gh pr close "$number" --comment "Superseded by #$current_number."
+                fi
+              done
+
+      # A failed record with no snapshot changes means the run itself broke
+      # (network, credentials, harness); surface it as a red job.
+      - if: steps.diff.outputs.changed == 'false' && steps.record.outcome == 'failure'
+        run: |
+          echo "Recording failed without producing snapshot changes; see the record step logs."
+          exit 1

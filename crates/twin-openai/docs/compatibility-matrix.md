@@ -3,7 +3,9 @@
 Supported endpoints:
 
 - `GET /healthz`
+- `GET /v1/models`
 - `POST /v1/responses`
+- `POST /v1/responses/input_tokens`
 - `POST /v1/chat/completions`
 - `POST /__admin/scenarios`
 - `POST /__admin/reset`
@@ -14,6 +16,13 @@ State isolation:
 - `/v1/*` request state is scoped by bearer token
 - admin routes may include the same bearer token to target that namespace
 - admin routes without auth operate on the global namespace
+
+Utility endpoints:
+
+- `/v1/models` returns one deterministic `gpt-test` model entry
+- `/v1/responses/input_tokens` validates the request as a Responses request
+  and estimates one token per four compact JSON bytes, rounded up
+- utility endpoints do not consume scenarios or response IDs
 
 Supported `/v1/responses` fields:
 
