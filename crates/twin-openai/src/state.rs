@@ -47,8 +47,11 @@ pub struct ScenarioSnapshot {
     pub model: Option<String>,
     pub stream: Option<bool>,
     pub input_contains: Option<String>,
+    pub instructions_contains: Option<String>,
     pub metadata: serde_json::Map<String, Value>,
     pub script_kind: String,
+    /// Answers left before the scenario is spent, or `None` when sticky.
+    pub remaining: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -140,6 +143,11 @@ impl AppState {
         Ok(())
     }
 
+    /// The first scenario in queue order that matches `request`.
+    ///
+    /// A one-shot scenario is removed. A `repeat` scenario answers again
+    /// until its count is spent. A `sticky` scenario stays until the
+    /// namespace is reset.
     pub fn take_matching_scenario(
         &self,
         namespace: &NamespaceKey,
@@ -150,6 +158,14 @@ impl AppState {
         let position = scenarios
             .iter()
             .position(|scenario| scenario.matches(request))?;
+        let scenario = &mut scenarios[position];
+        if scenario.sticky {
+            return Some(scenario.clone());
+        }
+        if scenario.repeat > 1 {
+            scenario.repeat -= 1;
+            return Some(scenario.clone());
+        }
         Some(scenarios.remove(position))
     }
 
@@ -222,8 +238,10 @@ impl AppState {
                         model: s.matcher.model.clone(),
                         stream: s.matcher.stream,
                         input_contains: s.matcher.input_contains.clone(),
+                        instructions_contains: s.matcher.instructions_contains.clone(),
                         metadata: s.matcher.metadata.clone(),
                         script_kind: s.script.script_kind().to_owned(),
+                        remaining: (!s.sticky).then_some(s.repeat),
                     })
                     .collect(),
                 request_logs: ns.request_logs.clone(),

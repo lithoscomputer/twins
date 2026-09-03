@@ -34,7 +34,9 @@ Supported `/v1/responses` fields:
 - `reasoning`
 - `text.format.type = text | json_object | json_schema`
 - image inputs in `input[*].content[*].type = input_image`
-- scripted tool calls and continuation input items
+- scripted tool calls (function and custom) and continuation input items
+- empty `function_call_output.output`
+- scripted `finish_reason: length` as an incomplete response
 
 Supported `/v1/chat/completions` fields:
 
@@ -46,6 +48,7 @@ Supported `/v1/chat/completions` fields:
 - `response_format.type = text | json_object | json_schema`
 - `stop`
 - reasoning-bearing assistant content
+- scripted `finish_reason: length`
 
 Unknown top-level fields are accepted and ignored. The twin does not simulate the behavior of
 fields that are not listed above.
@@ -61,6 +64,12 @@ Unsupported schema constructs fail explicitly:
 - arrays
 - `anyOf`
 - `oneOf`
+
+Scenario queue:
+
+- one-shot by default; `repeat` answers N matches; `sticky` answers until reset
+- matchers: `endpoint`, `model`, `stream`, `metadata`, `input_contains`,
+  `instructions_contains`, `request_hash`
 
 Failure scripting:
 

@@ -137,7 +137,7 @@ fn render_scenarios_table(html: &mut String, scenarios: &[ScenarioSnapshot]) {
     }
 
     html.push_str(
-        "      <table>\n        <thead><tr>\n          <th>#</th><th>endpoint</th><th>model</th><th>stream</th><th>input_contains</th><th>script</th>\n        </tr></thead>\n        <tbody>\n",
+        "      <table>\n        <thead><tr>\n          <th>#</th><th>endpoint</th><th>model</th><th>stream</th><th>input_contains</th><th>instructions_contains</th><th>script</th><th>left</th>\n        </tr></thead>\n        <tbody>\n",
     );
 
     for (i, s) in scenarios.iter().enumerate() {
@@ -153,16 +153,25 @@ fn render_scenarios_table(html: &mut String, scenarios: &[ScenarioSnapshot]) {
             .input_contains
             .as_deref()
             .map_or_else(|| "--".to_owned(), escape_html);
+        let instructions_contains = s
+            .instructions_contains
+            .as_deref()
+            .map_or_else(|| "--".to_owned(), escape_html);
+        let remaining = s
+            .remaining
+            .map_or_else(|| "sticky".to_owned(), |left| left.to_string());
 
         let _ = writeln!(
             html,
-            "          <tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            "          <tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
             i + 1,
             escape_html(&s.endpoint),
             model,
             stream,
             input_contains,
+            instructions_contains,
             escape_html(&s.script_kind),
+            remaining,
         );
     }
 
@@ -399,11 +408,13 @@ function renderScenariosTable(scenarios) {
       + '<td>' + esc(s.model || '--') + '</td>'
       + '<td>' + (s.stream === null ? '--' : s.stream) + '</td>'
       + '<td>' + esc(s.input_contains || '--') + '</td>'
+      + '<td>' + esc(s.instructions_contains || '--') + '</td>'
       + '<td>' + esc(s.script_kind) + '</td>'
+      + '<td>' + (s.remaining === null ? 'sticky' : s.remaining) + '</td>'
       + '</tr>';
   }).join('');
   return '<table><thead><tr>'
-    + '<th>#</th><th>endpoint</th><th>model</th><th>stream</th><th>input_contains</th><th>script</th>'
+    + '<th>#</th><th>endpoint</th><th>model</th><th>stream</th><th>input_contains</th><th>instructions_contains</th><th>script</th><th>left</th>'
     + '</tr></thead><tbody>' + rows + '</tbody></table>';
 }
 

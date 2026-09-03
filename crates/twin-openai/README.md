@@ -77,6 +77,23 @@ curl -X POST http://127.0.0.1:3000/__admin/scenarios \
 `scenario_id` is optional. Non-empty IDs must be unique within the active
 scenario queue for a namespace.
 
+A scenario answers one matching request and is then spent. `"repeat": 3`
+answers three, for a client that retries a scripted failure; `"sticky": true`
+answers every match until the namespace is reset.
+
+The matcher narrows by `endpoint`, `model`, `stream`, `metadata`,
+`input_contains` (the user text, including tool outputs the client sends
+back), and `instructions_contains` (the `instructions` field plus any `system`
+or `developer` messages), so a test can prove that a system prompt reached
+the model.
+
+A success script may set `"finish_reason": "length"` to render an answer the
+output token limit cut off: `status: incomplete` with
+`incomplete_details.reason: max_output_tokens` on Responses, and
+`finish_reason: length` on Chat Completions. A scripted tool call may set
+`"kind": "custom"` to render a free-form `custom_tool_call` item, whose
+`arguments` is then the text the tool receives as `input`.
+
 Inspect normalized request logs:
 
 ```bash
@@ -98,6 +115,7 @@ curl -X POST http://127.0.0.1:3000/__admin/reset \
 - Input-token scenarios use the `responses.input_tokens` matcher endpoint.
 - Structured output supports `json_object` and a documented `json_schema` subset.
 - Scripted failures support OpenAI-shaped application errors, delays, hangs, partial streams, and malformed SSE.
+- An empty `function_call_output.output` is accepted, as the live API accepts it; only a missing field is rejected.
 - Raw scripts support response headers, exact text or byte chunks, per-chunk delays, invalid UTF-8, and response-body connection failures.
 
 Use a raw script when a client test needs transport behavior instead of a

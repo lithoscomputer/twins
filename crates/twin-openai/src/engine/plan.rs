@@ -56,6 +56,8 @@ pub struct ResponsePlan {
     pub reasoning: Vec<String>,
     pub tool_calls: Vec<ToolCallPlan>,
     pub usage: TokenUsage,
+    /// The output token limit cut this response off.
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -64,17 +66,34 @@ pub struct ToolCallPlan {
     pub name: String,
     pub arguments: Value,
     pub raw_arguments: Option<String>,
+    /// A free-form `custom_tool_call` rather than a JSON `function_call`.
+    pub custom: bool,
 }
 
 impl ResponsePlan {
+    /// The payload text for a tool call: the raw arguments when the script
+    /// gave them, the JSON string itself for a custom call whose arguments
+    /// are already text, and the serialized JSON otherwise.
     pub fn tool_call_arguments_text(tool_call: &ToolCallPlan) -> String {
-        tool_call
-            .raw_arguments
-            .clone()
-            .unwrap_or_else(|| tool_call.arguments.to_string())
+        if let Some(raw) = &tool_call.raw_arguments {
+            return raw.clone();
+        }
+        match &tool_call.arguments {
+            Value::String(text) if tool_call.custom => text.clone(),
+            other => other.to_string(),
+        }
     }
 
-    fn responses_tool_call_item(tool_call: &ToolCallPlan) -> Value {
+    pub fn responses_tool_call_item(tool_call: &ToolCallPlan) -> Value {
+        if tool_call.custom {
+            return json!({
+                "id": format!("ctc_{}", tool_call.id),
+                "type": "custom_tool_call",
+                "call_id": tool_call.id,
+                "name": tool_call.name,
+                "input": Self::tool_call_arguments_text(tool_call),
+            });
+        }
         json!({
             "id": format!("fc_{}", tool_call.id),
             "type": "function_call",
@@ -82,6 +101,26 @@ impl ResponsePlan {
             "name": tool_call.name,
             "arguments": Self::tool_call_arguments_text(tool_call),
         })
+    }
+
+    /// The `finish_reason` a Chat Completions choice reports for this plan.
+    pub fn chat_finish_reason(&self) -> &'static str {
+        if self.truncated {
+            "length"
+        } else if self.tool_calls.is_empty() {
+            "stop"
+        } else {
+            "tool_calls"
+        }
+    }
+
+    /// The `status` a Responses document reports for this plan.
+    pub fn responses_status(&self) -> &'static str {
+        if self.truncated {
+            "incomplete"
+        } else {
+            "completed"
+        }
     }
 
     pub fn chat_content(&self) -> String {
@@ -122,16 +161,20 @@ impl ResponsePlan {
             output.push(Self::responses_tool_call_item(tool_call));
         }
 
-        json!({
+        let mut response = json!({
             "id": self.id,
             "object": "response",
             "created": self.created,
             "model": self.model,
-            "status": "completed",
+            "status": self.responses_status(),
             "reasoning": self.reasoning,
             "output": output,
             "usage": self.usage.responses_json()
-        })
+        });
+        if self.truncated {
+            response["incomplete_details"] = json!({ "reason": "max_output_tokens" });
+        }
+        response
     }
 
     pub fn chat_completions_json(&self) -> Value {
@@ -142,7 +185,7 @@ impl ResponsePlan {
             "model": self.model,
             "choices": [{
                 "index": 0,
-                "finish_reason": if self.tool_calls.is_empty() { "stop" } else { "tool_calls" },
+                "finish_reason": self.chat_finish_reason(),
                 "message": {
                     "role": "assistant",
                     "content": self.chat_content(),

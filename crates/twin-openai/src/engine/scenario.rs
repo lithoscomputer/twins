@@ -25,6 +25,20 @@ pub struct Scenario {
     pub namespace: Option<String>,
     pub matcher: ScenarioMatcher,
     pub script: ScenarioScript,
+    /// How many matching requests this scenario answers before it is spent.
+    /// The default is one. A client that retries a scripted failure needs
+    /// one answer per attempt, and `repeat` says how many without copying
+    /// the scenario.
+    #[serde(default = "default_repeat")]
+    pub repeat: u32,
+    /// Answers every matching request until the namespace is reset, and is
+    /// never spent. `repeat` is ignored when this is set.
+    #[serde(default)]
+    pub sticky: bool,
+}
+
+fn default_repeat() -> u32 {
+    1
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -35,6 +49,10 @@ pub struct ScenarioMatcher {
     #[serde(default)]
     pub metadata: Map<String, Value>,
     pub input_contains: Option<String>,
+    /// Substring of the request's instructions: the `instructions` field
+    /// plus any `system` or `developer` messages. Lets a test prove that a
+    /// system prompt reached the model.
+    pub instructions_contains: Option<String>,
     /// Hash of the canonicalized request body, as proxy-record writes it in
     /// transcript format. A hashed scenario matches only the exact request
     /// it was recorded from, so replay does not depend on request order.
@@ -50,6 +68,11 @@ pub enum ScenarioScript {
         structured_output: Option<Value>,
         tool_calls: Option<Vec<ToolCallTemplate>>,
         usage: Option<TokenUsage>,
+        /// How the response ended. Defaults to a natural stop, or to a tool
+        /// call when the script carries tool calls. `length` renders an
+        /// incomplete response cut off by the output token limit, so a client
+        /// can be tested against a truncated answer.
+        finish_reason: Option<FinishReason>,
         delay_before_headers_ms: Option<u64>,
         inter_event_delay_ms: Option<u64>,
         close_after_chunks: Option<usize>,
@@ -100,6 +123,48 @@ pub struct ToolCallTemplate {
     pub arguments: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_arguments: Option<String>,
+    /// A `custom` tool call carries free-form text rather than JSON
+    /// arguments, as `custom_tool_call` on the Responses API. `arguments`
+    /// then holds that text as a JSON string. Chat Completions has no such
+    /// item, so a custom call on that surface renders as a function call.
+    #[serde(
+        default,
+        rename = "kind",
+        skip_serializing_if = "ToolCallKind::is_function"
+    )]
+    pub kind: ToolCallKind,
+}
+
+/// Which shape a scripted tool call takes on the wire.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCallKind {
+    #[default]
+    Function,
+    Custom,
+}
+
+impl ToolCallKind {
+    #[allow(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's skip_serializing_if passes a reference"
+    )]
+    fn is_function(&self) -> bool {
+        *self == Self::Function
+    }
+}
+
+/// How a scripted success ended.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FinishReason {
+    /// The model stopped on its own, or asked for tools.
+    #[default]
+    Stop,
+    /// The output token limit cut the answer off. Renders as an
+    /// `incomplete` response with `max_output_tokens` on the Responses API
+    /// and `finish_reason: length` on Chat Completions.
+    Length,
 }
 
 #[derive(Clone, Debug)]
@@ -150,6 +215,12 @@ impl Scenario {
             }
         }
 
+        if let Some(needle) = &self.matcher.instructions_contains {
+            if !request.instructions_text.contains(needle) {
+                return false;
+            }
+        }
+
         if let Some(request_hash) = &self.matcher.request_hash {
             if request.request_hash.as_ref() != Some(request_hash) {
                 return false;
@@ -176,6 +247,7 @@ impl Scenario {
                 structured_output,
                 tool_calls,
                 usage,
+                finish_reason,
                 delay_before_headers_ms,
                 inter_event_delay_ms,
                 close_after_chunks,
@@ -190,6 +262,7 @@ impl Scenario {
                     structured_output.clone(),
                     tool_calls.clone().unwrap_or_default(),
                     *usage,
+                    finish_reason.unwrap_or_default(),
                 ),
                 transport: TransportOptions {
                     delay_before_headers_ms: delay_before_headers_ms.unwrap_or_default(),
@@ -257,6 +330,7 @@ impl Scenario {
                 structured_output,
                 tool_calls,
                 usage,
+                finish_reason,
                 delay_before_headers_ms,
                 inter_event_delay_ms,
                 close_after_chunks,
@@ -271,6 +345,7 @@ impl Scenario {
                     structured_output.clone(),
                     tool_calls.clone().unwrap_or_default(),
                     *usage,
+                    finish_reason.unwrap_or_default(),
                 ),
                 transport: TransportOptions {
                     delay_before_headers_ms: delay_before_headers_ms.unwrap_or_default(),
@@ -377,6 +452,10 @@ fn raw_outcome(
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "One argument per script field keeps the two call sites readable."
+)]
 fn build_plan_from_script(
     response_number: u64,
     model: String,
@@ -386,6 +465,7 @@ fn build_plan_from_script(
     structured_output: Option<Value>,
     tool_calls: Vec<ToolCallTemplate>,
     usage: Option<TokenUsage>,
+    finish_reason: FinishReason,
 ) -> ResponsePlan {
     let output_text = match response_text {
         Some(response_text) => response_text,
@@ -411,8 +491,10 @@ fn build_plan_from_script(
                 name: tool_call.name,
                 arguments: tool_call.arguments,
                 raw_arguments: tool_call.raw_arguments,
+                custom: tool_call.kind == ToolCallKind::Custom,
             })
             .collect(),
         usage: usage.unwrap_or_default(),
+        truncated: finish_reason == FinishReason::Length,
     }
 }
