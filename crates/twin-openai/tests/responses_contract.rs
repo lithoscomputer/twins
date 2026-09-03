@@ -282,6 +282,54 @@ async fn responses_reject_malformed_image_input() {
 }
 
 #[tokio::test]
+async fn codex_responses_alias_uses_response_scenarios() {
+    let server = common::spawn_server().await.expect("server should start");
+    server
+        .enqueue_scenarios(json!({
+            "scenarios": [{
+                "scenario_id": "codex-stream",
+                "matcher": {
+                    "endpoint": "responses",
+                    "model": "codex-test",
+                    "stream": true,
+                    "input_contains": "codex request"
+                },
+                "script": {
+                    "kind": "raw",
+                    "status": 200,
+                    "content_type": "text/event-stream",
+                    "headers": { "x-ratelimit-remaining-requests": "49" },
+                    "chunks": [{
+                        "kind": "text",
+                        "text": "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_codex\",\"status\":\"completed\"}}\n\n"
+                    }]
+                }
+            }]
+        }))
+        .await;
+
+    let response = server
+        .auth_client
+        .post(format!("{}/codex/responses", server.base_url))
+        .json(&json!({
+            "model": "codex-test",
+            "input": "codex request",
+            "stream": true
+        }))
+        .send()
+        .await
+        .expect("Codex request should complete");
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["x-ratelimit-remaining-requests"], "49");
+    assert!(response
+        .text()
+        .await
+        .expect("Codex response should be text")
+        .contains("resp_codex"));
+}
+
+#[tokio::test]
 async fn responses_stream_message_item_done_round_trips_as_input() {
     let server = common::spawn_server().await.expect("server should start");
 

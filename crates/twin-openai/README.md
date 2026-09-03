@@ -9,6 +9,7 @@ Async Rust fake OpenAI-compatible server for local black-box testing.
 - `POST /v1/responses`
 - `POST /v1/responses/input_tokens`
 - `POST /v1/chat/completions`
+- `POST /codex/responses`
 - `POST /__admin/scenarios`
 - `POST /__admin/reset`
 - `GET /__admin/requests`
@@ -93,7 +94,8 @@ curl -X POST http://127.0.0.1:3000/__admin/reset \
 ## Behavior summary
 
 - Non-stream and stream success paths are driven from the same canonical response plan.
-- `/v1/responses` and `/v1/chat/completions` share the same deterministic fallback behavior.
+- `/v1/responses`, `/codex/responses`, and `/v1/chat/completions` share the same deterministic fallback behavior.
+- Input-token scenarios use the `responses.input_tokens` matcher endpoint.
 - Structured output supports `json_object` and a documented `json_schema` subset.
 - Scripted failures support OpenAI-shaped application errors, delays, hangs, partial streams, and malformed SSE.
 - Raw scripts support response headers, exact text or byte chunks, per-chunk delays, invalid UTF-8, and response-body connection failures.

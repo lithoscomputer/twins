@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::json;
 
@@ -15,6 +15,7 @@ pub fn router(state: AppState) -> Result<Router> {
 
     let mut router = Router::new()
         .route("/healthz", get(healthz))
+        .route("/codex/responses", post(openai::responses::create_response))
         .nest("/v1", openai::router(state.config.require_auth));
 
     if state.config.enable_admin {
