@@ -7,13 +7,18 @@ OpenAI-compatible HTTP server for local testing.
 
 ## Run twin-openai
 
-Download a binary from the GitHub Releases page, or build it locally:
+Download a binary from the GitHub Releases page, run the Docker image, or
+build it locally:
+
+```bash
+docker run --rm -p 3000:3000 ghcr.io/lithoscomputer/twin-openai:latest
+```
 
 ```bash
 cargo run -p twin-openai
 ```
 
-The server listens on `127.0.0.1:3000` by default. See the
+Outside Docker, the server listens on `127.0.0.1:3000` by default. See the
 [`twin-openai` documentation](crates/twin-openai/README.md) for its endpoints,
 configuration, and scenario API.
 
@@ -45,6 +50,14 @@ downloaded archive with:
 
 ```bash
 gh attestation verify twin-openai-linux-x86_64.tar.gz --repo lithoscomputer/twins
+```
+
+The multi-platform Docker image supports Linux x86_64 and Linux ARM64. Each
+version uses the matching binary from the GitHub release build. Verify its
+build-provenance attestation with:
+
+```bash
+gh attestation verify oci://ghcr.io/lithoscomputer/twin-openai:latest --repo lithoscomputer/twins
 ```
 
 ## Development
