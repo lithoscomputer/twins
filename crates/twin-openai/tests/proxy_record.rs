@@ -9,7 +9,10 @@ mod common;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 
 use axum::body::Bytes;
 use axum::extract::State;
@@ -21,6 +24,7 @@ use tokio::net::TcpListener;
 use twin_openai::config::{Config, Mode, RecordFormat};
 
 const UPSTREAM_KEY: &str = "upstream-secret";
+static NEXT_RECORDING_PATH_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
 struct CapturedRequest {
@@ -38,12 +42,13 @@ struct CaptureState {
 
 fn recording_path() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "twin-openai-proxy-recording-{}-{}.json",
+        "twin-openai-proxy-recording-{}-{}-{}.json",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock should be sane")
-            .as_nanos()
+            .as_nanos(),
+        NEXT_RECORDING_PATH_ID.fetch_add(1, Ordering::Relaxed)
     ))
 }
 

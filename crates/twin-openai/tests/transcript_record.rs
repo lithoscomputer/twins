@@ -12,6 +12,7 @@ mod common;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::body::{Body, Bytes};
 use axum::http::{header, Response as HttpResponse};
@@ -23,15 +24,17 @@ use twin_openai::config::{Config, Mode, RecordFormat};
 
 const UPSTREAM_KEY: &str = "upstream-secret";
 const BEARER: &str = "transcript-suite";
+static NEXT_RECORDING_PATH_ID: AtomicU64 = AtomicU64::new(0);
 
 fn recording_path() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "twin-openai-transcript-recording-{}-{}.json",
+        "twin-openai-transcript-recording-{}-{}-{}.json",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock should be sane")
-            .as_nanos()
+            .as_nanos(),
+        NEXT_RECORDING_PATH_ID.fetch_add(1, Ordering::Relaxed)
     ))
 }
 
