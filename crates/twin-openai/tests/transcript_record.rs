@@ -144,6 +144,7 @@ fn proxy_config(upstream_url: &str, recording: &std::path::Path, append: bool) -
     Config {
         mode: Mode::ProxyRecord,
         upstream_url: upstream_url.to_owned(),
+        upstream_responses_path: None,
         upstream_api_key: Some(UPSTREAM_KEY.to_owned()),
         recording_path: Some(recording.to_owned()),
         record_format: RecordFormat::Transcript,

@@ -201,6 +201,7 @@ async fn proxy_records_and_replays_per_namespace() {
     let proxy_url = spawn(Config {
         mode: Mode::ProxyRecord,
         upstream_url: upstream.base_url.clone(),
+        upstream_responses_path: None,
         upstream_api_key: Some(UPSTREAM_KEY.to_owned()),
         recording_path: Some(recording.clone()),
         record_format: RecordFormat::Semantic,
@@ -322,4 +323,246 @@ async fn proxy_records_and_replays_per_namespace() {
     assert_eq!(unmatched.status(), 400);
 
     std::fs::remove_file(recording).expect("recording should be removable");
+}
+
+/// The Codex deployment hangs its Responses endpoint off an unversioned
+/// path and authenticates a seat with `ChatGPT-Account-Id` and `originator`
+/// headers. The proxy rebases `/v1/responses` onto the configured upstream
+/// path, forwards the seat headers, and the recorded exchange replays
+/// through the ordinary strict twin at the standard path.
+#[tokio::test]
+async fn proxy_rebases_the_responses_path_and_forwards_seat_headers() {
+    use std::sync::{Arc, Mutex};
+
+    use axum::extract::State as AxumState;
+    use axum::http::HeaderMap;
+    use axum::routing::post;
+    use axum::{Json, Router};
+
+    // "Live Codex": a hand-rolled upstream serving only the unversioned
+    // deployment path, capturing the headers each request carried.
+    #[derive(Clone, Default)]
+    struct SeenHeaders {
+        authorization: Option<String>,
+        account_id: Option<String>,
+        originator: Option<String>,
+    }
+
+    #[derive(Clone, Default)]
+    struct Seen(Arc<Mutex<Vec<SeenHeaders>>>);
+
+    async fn codex_upstream(
+        AxumState(seen): AxumState<Seen>,
+        headers: HeaderMap,
+        Json(_body): Json<Value>,
+    ) -> Json<Value> {
+        let header = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(ToOwned::to_owned)
+        };
+        seen.0
+            .lock()
+            .expect("lock should be sane")
+            .push(SeenHeaders {
+                authorization: header("authorization"),
+                account_id: header("chatgpt-account-id"),
+                originator: header("originator"),
+            });
+        Json(json!({
+            "id": "resp_codex",
+            "object": "response",
+            "status": "completed",
+            "model": "gpt-test",
+            "output": [{
+                "type": "message",
+                "id": "msg_codex",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "Hello from the seat." }]
+            }],
+            "usage": {
+                "input_tokens": 7,
+                "output_tokens": 5,
+                "total_tokens": 12
+            }
+        }))
+    }
+
+    let seen = Seen::default();
+    let upstream_app = Router::new()
+        .route("/backend-api/codex/responses", post(codex_upstream))
+        .with_state(seen.clone());
+    let upstream_listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener should bind");
+    let upstream_addr = upstream_listener
+        .local_addr()
+        .expect("upstream listener should have addr");
+    tokio::spawn(async move {
+        axum::serve(upstream_listener, upstream_app)
+            .await
+            .expect("upstream should run");
+    });
+
+    let recording = recording_path();
+    let proxy_url = spawn(Config {
+        mode: Mode::ProxyRecord,
+        upstream_url: format!("http://{upstream_addr}"),
+        upstream_responses_path: Some("/backend-api/codex/responses".to_owned()),
+        upstream_api_key: Some(UPSTREAM_KEY.to_owned()),
+        recording_path: Some(recording.clone()),
+        record_format: RecordFormat::Transcript,
+        enable_admin: false,
+        ..Config::default()
+    })
+    .await;
+
+    // The client hits the proxy at the standard `/v1/responses` route; only
+    // the upstream half of the exchange is rebased.
+    let response = reqwest::Client::new()
+        .post(format!("{proxy_url}/v1/responses"))
+        .bearer_auth("codex-namespace")
+        .header("ChatGPT-Account-Id", "acct_123")
+        .header("originator", "twin-test")
+        .json(&responses_text_request())
+        .send()
+        .await
+        .expect("proxied request should complete");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body: Value = response.json().await.expect("body should be JSON");
+    assert_eq!(
+        response_text(&body).as_deref(),
+        Some("Hello from the seat.")
+    );
+
+    let captured = seen.0.lock().expect("lock should be sane").clone();
+    assert_eq!(captured.len(), 1, "the upstream should see one request");
+    assert_eq!(
+        captured[0].authorization.as_deref(),
+        Some(format!("Bearer {UPSTREAM_KEY}").as_str()),
+        "the client bearer must be replaced with the upstream key"
+    );
+    assert_eq!(captured[0].account_id.as_deref(), Some("acct_123"));
+    assert_eq!(captured[0].originator.as_deref(), Some("twin-test"));
+
+    // The recording replays through the strict twin with no upstream at all.
+    let replay_url = spawn(Config {
+        scenarios_path: Some(recording.clone()),
+        allow_unmatched: false,
+        enable_admin: false,
+        ..Config::default()
+    })
+    .await;
+    let replayed: Value = client(&replay_url, "codex-namespace")
+        .post_json("/v1/responses", &responses_text_request())
+        .await
+        .json()
+        .await
+        .expect("replayed body should be JSON");
+    assert_eq!(
+        response_text(&replayed).as_deref(),
+        Some("Hello from the seat.")
+    );
+
+    std::fs::remove_file(&recording).ok();
+}
+
+/// The Codex deployment answers a streaming request with no content-type
+/// header at all. The proxy must classify the exchange by the request's own
+/// stream flag, record the SSE transcript, and replay it — the JSON path
+/// would silently parse-fail and record nothing.
+#[tokio::test]
+async fn proxy_records_a_stream_served_without_a_content_type() {
+    use axum::body::Body;
+    use axum::http::Response as HttpResponse;
+    use axum::routing::post;
+    use axum::Router;
+
+    const SSE_BODY: &str = "event: response.created\n\
+        data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n\
+        event: response.output_item.done\n\
+        data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Bare stream.\"}]}}\n\n\
+        event: response.completed\n\
+        data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"output\":[]}}\n\n";
+
+    async fn bare_upstream() -> HttpResponse<Body> {
+        // Deliberately no content-type header, matching the live deployment.
+        HttpResponse::new(Body::from(SSE_BODY))
+    }
+
+    let upstream_app = Router::new().route("/responses", post(bare_upstream));
+    let upstream_listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener should bind");
+    let upstream_addr = upstream_listener
+        .local_addr()
+        .expect("upstream listener should have addr");
+    tokio::spawn(async move {
+        axum::serve(upstream_listener, upstream_app)
+            .await
+            .expect("upstream should run");
+    });
+
+    let recording = recording_path();
+    let proxy_url = spawn(Config {
+        mode: Mode::ProxyRecord,
+        upstream_url: format!("http://{upstream_addr}"),
+        upstream_responses_path: Some("/responses".to_owned()),
+        upstream_api_key: Some(UPSTREAM_KEY.to_owned()),
+        recording_path: Some(recording.clone()),
+        record_format: RecordFormat::Transcript,
+        enable_admin: false,
+        ..Config::default()
+    })
+    .await;
+
+    let request = json!({
+        "model": "gpt-test",
+        "input": "Please reply with a greeting.",
+        "stream": true
+    });
+    let response = client(&proxy_url, "bare-namespace")
+        .post_json("/v1/responses", &request)
+        .await;
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.text().await.expect("the stream should read");
+    assert!(
+        body.contains("Bare stream."),
+        "the passthrough must still carry the stream: {body}"
+    );
+
+    let recorded: Value = serde_json::from_str(
+        &std::fs::read_to_string(&recording).expect("the recording should exist"),
+    )
+    .expect("the recording should be JSON");
+    let scenarios = recorded["scenarios"]
+        .as_array()
+        .expect("the recording should hold scenarios");
+    assert_eq!(
+        scenarios.len(),
+        1,
+        "the bare-header stream must be recorded: {recorded}"
+    );
+    assert_eq!(scenarios[0]["matcher"]["stream"], json!(true));
+
+    // And the recorded transcript replays through the strict twin.
+    let replay_url = spawn(Config {
+        scenarios_path: Some(recording.clone()),
+        allow_unmatched: false,
+        enable_admin: false,
+        ..Config::default()
+    })
+    .await;
+    let response = client(&replay_url, "bare-namespace")
+        .post_json("/v1/responses", &request)
+        .await;
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.text().await.expect("the replay should read");
+    assert!(
+        body.contains("Bare stream."),
+        "the replay must carry the recorded stream: {body}"
+    );
+
+    std::fs::remove_file(&recording).ok();
 }

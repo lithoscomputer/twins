@@ -111,6 +111,7 @@ pub fn test_config() -> Config {
         allow_unmatched: false,
         mode: twin_openai::config::Mode::Twin,
         upstream_url: "https://api.openai.com".to_owned(),
+        upstream_responses_path: None,
         upstream_api_key: None,
         recording_path: None,
         record_format: RecordFormat::Semantic,

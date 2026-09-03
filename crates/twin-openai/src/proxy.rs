@@ -37,6 +37,10 @@ use crate::record::{
 struct ProxyState {
     client: reqwest::Client,
     upstream_url: String,
+    /// Where `/v1/responses` traffic lands on the upstream. OpenAI's Codex
+    /// deployment serves the unversioned `<base>/responses`, so the path is
+    /// rebased rather than echoed.
+    upstream_responses_path: String,
     upstream_api_key: String,
     require_auth: bool,
     record_format: RecordFormat,
@@ -58,6 +62,10 @@ pub fn router(config: &Config) -> Result<Router> {
             .build()
             .context("failed to build proxy HTTP client")?,
         upstream_url: config.upstream_url.clone(),
+        upstream_responses_path: config
+            .upstream_responses_path
+            .clone()
+            .unwrap_or_else(|| "/v1/responses".to_owned()),
         upstream_api_key,
         require_auth: config.require_auth,
         record_format: config.record_format,
@@ -83,14 +91,8 @@ async fn proxy_responses(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    proxy_exchange(
-        state,
-        RecordedEndpoint::Responses,
-        "/v1/responses",
-        &headers,
-        body,
-    )
-    .await
+    let path = state.upstream_responses_path.clone();
+    proxy_exchange(state, RecordedEndpoint::Responses, &path, &headers, body).await
 }
 
 async fn proxy_chat(State(state): State<ProxyState>, headers: HeaderMap, body: Bytes) -> Response {
@@ -130,7 +132,14 @@ async fn proxy_exchange(
         )
         .header(header::CONTENT_TYPE, "application/json")
         .body(body);
-    for name in ["openai-organization", "openai-project"] {
+    // `chatgpt-account-id` and `originator` are the Codex deployment's seat
+    // envelope; forwarding them costs nothing on the platform API.
+    for name in [
+        "openai-organization",
+        "openai-project",
+        "chatgpt-account-id",
+        "originator",
+    ] {
         if let Some(value) = headers.get(name) {
             upstream_request = upstream_request.header(name, value);
         }
@@ -146,10 +155,14 @@ async fn proxy_exchange(
         .headers()
         .get(header::CONTENT_TYPE)
         .cloned();
-    let is_event_stream = content_type
-        .as_ref()
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.contains("text/event-stream"));
+    // The OpenAI Codex deployment answers a streaming request with no
+    // content-type header at all, so a missing header falls back to the
+    // request's own stream flag rather than the JSON path, which would
+    // silently fail to parse SSE bytes and record nothing.
+    let is_event_stream = match content_type.as_ref().and_then(|value| value.to_str().ok()) {
+        Some(value) => value.contains("text/event-stream"),
+        None => shape.is_some_and(|shape| shape.stream),
+    };
 
     if is_event_stream {
         stream_and_record(
@@ -167,22 +180,30 @@ async fn proxy_exchange(
             Err(error) => return upstream_error_response(&error),
         };
         if status == StatusCode::OK {
-            if let (Some(shape), Ok(parsed)) = (shape, serde_json::from_slice::<Value>(&body)) {
-                let exchange = RecordedExchange::Json(parsed);
-                match state.record_format {
-                    RecordFormat::Semantic => {
-                        state.recorder.record(bearer.as_deref(), shape, &exchange);
+            match (shape, serde_json::from_slice::<Value>(&body)) {
+                (Some(shape), Ok(parsed)) => {
+                    let exchange = RecordedExchange::Json(parsed);
+                    match state.record_format {
+                        RecordFormat::Semantic => {
+                            state.recorder.record(bearer.as_deref(), shape, &exchange);
+                        }
+                        RecordFormat::Transcript => {
+                            state.recorder.record_transcript(
+                                bearer.as_deref(),
+                                shape,
+                                hash,
+                                status,
+                                content_type.as_ref(),
+                                &exchange,
+                            );
+                        }
                     }
-                    RecordFormat::Transcript => {
-                        state.recorder.record_transcript(
-                            bearer.as_deref(),
-                            shape,
-                            hash,
-                            status,
-                            content_type.as_ref(),
-                            &exchange,
-                        );
-                    }
+                }
+                (None, _) => {
+                    tracing::warn!("passing through an OK exchange whose request was not JSON; nothing recorded");
+                }
+                (_, Err(error)) => {
+                    tracing::warn!(%error, "passing through an OK non-JSON body; nothing recorded");
                 }
             }
         }
@@ -415,6 +436,10 @@ impl Recorder {
         scenario.insert("matcher".to_owned(), matcher);
         scenario.insert("script".to_owned(), script);
         state.scenarios.push(Value::Object(scenario));
+        tracing::info!(
+            scenario_id = format!("{namespace_label}/{sequence:04}"),
+            "recorded proxy exchange"
+        );
 
         if let Err(error) = self.flush(&state) {
             tracing::error!(%error, "failed to write proxy recording");
