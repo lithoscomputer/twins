@@ -2,6 +2,7 @@ mod common;
 
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use reqwest::header::AUTHORIZATION;
 use serde_json::json;
 
@@ -298,6 +299,89 @@ async fn scripted_malformed_sse_is_observable_for_responses() {
     assert_eq!(raw.status, 200);
     assert!(joined.contains("event: malformed"));
     assert!(parse_error.contains("incomplete"));
+}
+
+#[tokio::test]
+async fn scripted_raw_chunks_preserve_arbitrary_and_invalid_utf8_bytes() {
+    let server = common::spawn_server().await.expect("server should start");
+    server
+        .enqueue_scenarios(json!({
+            "scenarios": [
+                {
+                    "matcher": { "endpoint": "responses", "model": "gpt-test", "stream": false },
+                    "script": {
+                        "kind": "raw",
+                        "status": 206,
+                        "content_type": "application/octet-stream",
+                        "chunks": [
+                            { "kind": "text", "text": "prefix:" },
+                            { "kind": "bytes", "bytes": [0, 127, 128, 255, 254] }
+                        ]
+                    }
+                }
+            ]
+        }))
+        .await;
+
+    let response = server
+        .post_responses(json!({ "model": "gpt-test", "input": "raw", "stream": false }))
+        .await;
+
+    assert_eq!(response.status(), 206);
+    assert_eq!(
+        response.headers()["content-type"],
+        "application/octet-stream"
+    );
+    let body = response.bytes().await.expect("raw body should complete");
+    assert_eq!(body.as_ref(), b"prefix:\x00\x7f\x80\xff\xfe");
+    assert!(std::str::from_utf8(&body).is_err());
+}
+
+#[tokio::test]
+async fn scripted_raw_body_error_fails_the_client_after_a_chunk() {
+    let server = common::spawn_server().await.expect("server should start");
+    server
+        .enqueue_scenarios(json!({
+            "scenarios": [
+                {
+                    "matcher": { "endpoint": "chat.completions", "model": "gpt-test", "stream": true },
+                    "script": {
+                        "kind": "raw",
+                        "status": 200,
+                        "content_type": "text/event-stream",
+                        "chunks": [
+                            { "kind": "text", "text": "data: prefix\n\n" },
+                            { "kind": "error", "message": "scripted connection failure", "delay_ms": 25 }
+                        ]
+                    }
+                }
+            ]
+        }))
+        .await;
+
+    let response = server
+        .post_chat(json!({
+            "model": "gpt-test",
+            "messages": [{ "role": "user", "content": "raw failure" }],
+            "stream": true
+        }))
+        .await;
+    let mut body = response.bytes_stream();
+
+    assert_eq!(
+        body.next()
+            .await
+            .expect("first body item")
+            .expect("first chunk"),
+        "data: prefix\n\n"
+    );
+    let error = body
+        .next()
+        .await
+        .expect("body error item")
+        .expect_err("body should fail");
+    assert!(error.is_decode(), "unexpected body error: {error:?}");
+    assert!(body.next().await.is_none());
 }
 
 #[tokio::test]

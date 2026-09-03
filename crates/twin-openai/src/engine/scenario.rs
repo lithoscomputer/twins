@@ -9,6 +9,7 @@ use super::failures::{
 };
 use super::plan::{ResponsePlan, TokenUsage, ToolCallPlan};
 use crate::openai::models::{ChatCompletionsRequest, ResponsesRequest};
+use crate::transport::{RawChunk, RawOutcome};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ScenarioEnvelope {
@@ -74,6 +75,13 @@ pub enum ScenarioScript {
         body: Option<Value>,
         events: Option<Vec<TranscriptEvent>>,
     },
+    /// An exact response body for transport-level client tests.
+    Raw {
+        status: u16,
+        content_type: Option<String>,
+        chunks: Vec<RawChunk>,
+        delay_before_headers_ms: Option<u64>,
+    },
 }
 
 /// One recorded SSE event of a transcript scenario.
@@ -111,6 +119,7 @@ impl ScenarioScript {
             Self::Error { .. } => "error",
             Self::Hang { .. } => "hang",
             Self::Transcript { .. } => "transcript",
+            Self::Raw { .. } => "raw",
         }
     }
 }
@@ -198,6 +207,17 @@ impl Scenario {
                 body.clone(),
                 events.clone(),
             )),
+            ScenarioScript::Raw {
+                status,
+                content_type,
+                chunks,
+                delay_before_headers_ms,
+            } => ExecutionOutcome::Raw(raw_outcome(
+                *status,
+                content_type.clone(),
+                chunks.clone(),
+                *delay_before_headers_ms,
+            )),
             ScenarioScript::Error {
                 status,
                 message,
@@ -266,6 +286,17 @@ impl Scenario {
                 body.clone(),
                 events.clone(),
             )),
+            ScenarioScript::Raw {
+                status,
+                content_type,
+                chunks,
+                delay_before_headers_ms,
+            } => ExecutionOutcome::Raw(raw_outcome(
+                *status,
+                content_type.clone(),
+                chunks.clone(),
+                *delay_before_headers_ms,
+            )),
             ScenarioScript::Error {
                 status,
                 message,
@@ -321,6 +352,20 @@ fn transcript_outcome(
             Some(events) => TranscriptBody::Events(events),
             None => TranscriptBody::Json(body.unwrap_or(Value::Null)),
         },
+    }
+}
+
+fn raw_outcome(
+    status: u16,
+    content_type: Option<String>,
+    chunks: Vec<RawChunk>,
+    delay_before_headers_ms: Option<u64>,
+) -> RawOutcome {
+    RawOutcome {
+        status: StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        content_type,
+        chunks,
+        delay_before_headers_ms: delay_before_headers_ms.unwrap_or_default(),
     }
 }
 

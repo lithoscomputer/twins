@@ -4,6 +4,7 @@ use serde_json::Value;
 use super::plan::ResponsePlan;
 use super::scenario::TranscriptEvent;
 use crate::openai::models::{ErrorBody, ErrorEnvelope};
+use crate::transport::RawOutcome;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TransportOptions {
@@ -36,6 +37,8 @@ pub enum ExecutionOutcome {
     },
     /// A verbatim recorded exchange to send back exactly as captured.
     Transcript(TranscriptOutcome),
+    /// An exact sequence of response body chunks or a body failure.
+    Raw(RawOutcome),
 }
 
 /// A recorded exchange replayed without the canonical engine.

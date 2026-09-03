@@ -96,6 +96,29 @@ curl -X POST http://127.0.0.1:3000/__admin/reset \
 - `/v1/responses` and `/v1/chat/completions` share the same deterministic fallback behavior.
 - Structured output supports `json_object` and a documented `json_schema` subset.
 - Scripted failures support OpenAI-shaped application errors, delays, hangs, partial streams, and malformed SSE.
+- Raw scripts support exact text or byte chunks, per-chunk delays, invalid UTF-8, and response-body connection failures.
+
+Use a raw script when a client test needs transport behavior instead of a
+valid OpenAI response:
+
+```json
+{
+  "matcher": { "endpoint": "responses", "model": "gpt-test" },
+  "script": {
+    "kind": "raw",
+    "status": 200,
+    "content_type": "application/octet-stream",
+    "chunks": [
+      { "kind": "text", "text": "prefix" },
+      { "kind": "bytes", "bytes": [0, 255, 254], "delay_ms": 10 },
+      { "kind": "error", "message": "scripted connection failure" }
+    ]
+  }
+}
+```
+
+The `error` action ends the body immediately. Actions after it are not sent.
+Set `delay_before_headers_ms` on the raw script to delay the response headers.
 
 ## Recorded Contract Fixtures
 
