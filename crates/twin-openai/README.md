@@ -96,7 +96,7 @@ curl -X POST http://127.0.0.1:3000/__admin/reset \
 - `/v1/responses` and `/v1/chat/completions` share the same deterministic fallback behavior.
 - Structured output supports `json_object` and a documented `json_schema` subset.
 - Scripted failures support OpenAI-shaped application errors, delays, hangs, partial streams, and malformed SSE.
-- Raw scripts support exact text or byte chunks, per-chunk delays, invalid UTF-8, and response-body connection failures.
+- Raw scripts support response headers, exact text or byte chunks, per-chunk delays, invalid UTF-8, and response-body connection failures.
 
 Use a raw script when a client test needs transport behavior instead of a
 valid OpenAI response:
@@ -108,6 +108,10 @@ valid OpenAI response:
     "kind": "raw",
     "status": 200,
     "content_type": "application/octet-stream",
+    "headers": {
+      "retry-after": "2",
+      "x-twin-scenario": "raw-example"
+    },
     "chunks": [
       { "kind": "text", "text": "prefix" },
       { "kind": "bytes", "bytes": [0, 255, 254], "delay_ms": 10 },
@@ -119,6 +123,7 @@ valid OpenAI response:
 
 The `error` action ends the body immediately. Actions after it are not sent.
 Set `delay_before_headers_ms` on the raw script to delay the response headers.
+The `content_type` field overrides a `content-type` entry in `headers`.
 
 ## Recorded Contract Fixtures
 

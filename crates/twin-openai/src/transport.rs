@@ -1,9 +1,10 @@
+use std::collections::BTreeMap;
 use std::io;
 use std::time::Duration;
 
 use async_stream::stream;
 use axum::body::{Body, Bytes};
-use axum::http::{header, HeaderValue, Response, StatusCode};
+use axum::http::{header, HeaderName, HeaderValue, Response, StatusCode};
 use serde::Deserialize;
 use tokio::time::sleep;
 
@@ -35,6 +36,7 @@ pub enum RawChunk {
 pub struct RawOutcome {
     pub status: StatusCode,
     pub content_type: Option<String>,
+    pub headers: BTreeMap<String, String>,
     pub chunks: Vec<RawChunk>,
     pub delay_before_headers_ms: u64,
 }
@@ -67,6 +69,11 @@ pub async fn raw_response(outcome: RawOutcome) -> Response<Body> {
 
     let mut response = Response::new(body);
     *response.status_mut() = outcome.status;
+    for (name, value) in outcome.headers {
+        if let (Ok(name), Ok(value)) = (HeaderName::try_from(name), HeaderValue::try_from(value)) {
+            response.headers_mut().insert(name, value);
+        }
+    }
     if let Some(content_type) = outcome.content_type {
         if let Ok(value) = HeaderValue::try_from(content_type) {
             response.headers_mut().insert(header::CONTENT_TYPE, value);

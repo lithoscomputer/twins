@@ -313,6 +313,11 @@ async fn scripted_raw_chunks_preserve_arbitrary_and_invalid_utf8_bytes() {
                         "kind": "raw",
                         "status": 206,
                         "content_type": "application/octet-stream",
+                        "headers": {
+                            "content-type": "text/plain",
+                            "retry-after": "2",
+                            "x-twin-scenario": "raw-bytes"
+                        },
                         "chunks": [
                             { "kind": "text", "text": "prefix:" },
                             { "kind": "bytes", "bytes": [0, 127, 128, 255, 254] }
@@ -332,6 +337,8 @@ async fn scripted_raw_chunks_preserve_arbitrary_and_invalid_utf8_bytes() {
         response.headers()["content-type"],
         "application/octet-stream"
     );
+    assert_eq!(response.headers()["retry-after"], "2");
+    assert_eq!(response.headers()["x-twin-scenario"], "raw-bytes");
     let body = response.bytes().await.expect("raw body should complete");
     assert_eq!(body.as_ref(), b"prefix:\x00\x7f\x80\xff\xfe");
     assert!(std::str::from_utf8(&body).is_err());
