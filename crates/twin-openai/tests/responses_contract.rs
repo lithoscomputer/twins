@@ -52,7 +52,11 @@ async fn responses_accepts_supported_openai_request_fields() {
                     "role": "user",
                     "content": [
                         { "type": "input_text", "text": "Summarize this image please" },
-                        { "type": "input_image", "image_url": "https://example.com/cat.png" }
+                        {
+                            "type": "input_image",
+                            "image_url": "https://example.com/cat.png",
+                            "detail": "low"
+                        }
                     ]
                 }
             ],
