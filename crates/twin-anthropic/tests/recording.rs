@@ -15,6 +15,101 @@ fn message_start() -> TranscriptEvent {
     )
 }
 
+fn text_stream() -> Vec<TranscriptEvent> {
+    vec![
+        message_start(),
+        event(
+            &json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+        ),
+        event(
+            &json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello 🌊"}}),
+        ),
+        event(&json!({"type":"content_block_stop","index":0})),
+        event(
+            &json!({"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":2}}),
+        ),
+        event(&json!({"type":"message_stop"})),
+    ]
+}
+
+#[test]
+fn semantic_recording_checks_message_and_block_lifecycles() {
+    let valid = text_stream();
+    let message = message_from_events(&valid).expect("valid stream");
+    assert_eq!(
+        message["content"],
+        json!([{"type":"text","text":"hello 🌊"}])
+    );
+    let mut bad_streams = Vec::new();
+    for index in [0, 1, 3, 4, 5] {
+        let mut events = valid.clone();
+        events.remove(index);
+        bad_streams.push(events);
+    }
+    for index in [0, 1, 3, 5] {
+        let mut events = valid.clone();
+        events.insert(index, events[index].clone());
+        bad_streams.push(events);
+    }
+    for pair in [(0, 1), (2, 3), (3, 4)] {
+        let mut events = valid.clone();
+        events.swap(pair.0, pair.1);
+        bad_streams.push(events);
+    }
+    for replacement in [
+        json!({"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"x"}}),
+        json!({"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}),
+    ] {
+        let mut events = valid.clone();
+        events[2] = event(&replacement);
+        bad_streams.push(events);
+    }
+    let mut mismatch = valid.clone();
+    mismatch[2].event = Some("message_stop".to_owned());
+    bad_streams.push(mismatch);
+    for events in bad_streams {
+        assert!(
+            message_from_events(&events).is_err(),
+            "accepted malformed stream: {events:?}"
+        );
+    }
+
+    let mut updates = valid;
+    updates.insert(2, event(&json!({"type":"ping"})));
+    updates.insert(updates.len() - 1, event(&json!({"type":"message_delta","delta":{},"usage":{"output_tokens":3,"cache_read_input_tokens":7}})));
+    let message = message_from_events(&updates).expect("cumulative updates");
+    assert_eq!(
+        message["usage"],
+        json!({"input_tokens":1,"output_tokens":3,"cache_read_input_tokens":7})
+    );
+}
+
+#[test]
+fn tool_json_must_be_complete_and_an_object_when_the_block_closes() {
+    for (raw, valid) in [
+        ("{\"city\":\"Paris\"}", true),
+        ("{\"city\":", false),
+        ("[]", false),
+        ("null", false),
+    ] {
+        let mut events = text_stream();
+        events[1] = event(
+            &json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_test","name":"weather","input":{}}}),
+        );
+        events[2] = event(
+            &json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":raw}}),
+        );
+        let result = message_from_events(&events);
+        assert_eq!(result.is_ok(), valid, "tool input: {raw}");
+        if valid {
+            assert_eq!(
+                result.expect("valid tool input")["content"][0]["input"],
+                json!({"city":"Paris"})
+            );
+        }
+    }
+}
+
 #[test]
 fn malformed_event_shapes_return_errors_without_panicking() {
     for invalid in [

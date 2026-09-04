@@ -2,7 +2,7 @@
 use crate::engine::scenario::TranscriptEvent;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Parse SSE events with LF, CRLF, or CR line endings and optional spaces
 /// after field colons. Ignores comments and unrecorded fields such as `id`.
@@ -89,31 +89,64 @@ pub fn message_from_events(events: &[TranscriptEvent]) -> Result<Value> {
     let mut message = None;
     let mut blocks: BTreeMap<u64, Value> = BTreeMap::new();
     let mut arguments: BTreeMap<u64, String> = BTreeMap::new();
+    let mut open_blocks = BTreeSet::new();
+    let mut saw_message_delta = false;
     let mut stopped = false;
     for event in events {
         let data: Value = serde_json::from_str(&event.data).context("invalid event JSON")?;
         anyhow::ensure!(data.is_object(), "event must be an object");
+        anyhow::ensure!(!stopped, "event after message_stop");
+        if let (Some(kind), Some(name)) = (data["type"].as_str(), event.event.as_deref()) {
+            anyhow::ensure!(kind == name, "event name and data type disagree");
+        }
         match data["type"].as_str().or(event.event.as_deref()) {
             Some("message_start") => {
+                anyhow::ensure!(message.is_none(), "duplicate message_start");
                 let initial = data.get("message").context("missing message")?;
                 anyhow::ensure!(initial.is_object(), "message must be an object");
+                anyhow::ensure!(
+                    initial["content"].as_array().is_some_and(Vec::is_empty),
+                    "message_start content must be empty"
+                );
                 message = Some(initial.clone());
             }
             Some("content_block_start") => {
+                anyhow::ensure!(
+                    message.is_some() && !saw_message_delta,
+                    "block start outside content phase"
+                );
                 let index = data["index"].as_u64().context("missing block index")?;
+                anyhow::ensure!(
+                    index == u64::try_from(blocks.len())?,
+                    "block indexes must start at zero and increase without gaps"
+                );
                 anyhow::ensure!(
                     data["content_block"].is_object(),
                     "content block must be an object"
                 );
                 blocks.insert(index, data["content_block"].clone());
+                open_blocks.insert(index);
             }
             Some("content_block_delta") => {
                 let index = data["index"].as_u64().context("missing block index")?;
+                anyhow::ensure!(open_blocks.contains(&index), "delta without an open block");
                 let block = blocks
                     .get_mut(&index)
                     .context("delta without block start")?;
                 let delta = &data["delta"];
                 anyhow::ensure!(delta.is_object(), "block delta must be an object");
+                let compatible = match delta["type"].as_str() {
+                    Some("text_delta" | "citations_delta") => block["type"] == "text",
+                    Some("thinking_delta" | "signature_delta") => block["type"] == "thinking",
+                    Some("input_json_delta") => {
+                        matches!(block["type"].as_str(), Some("tool_use" | "server_tool_use"))
+                    }
+                    _ => false,
+                };
+                anyhow::ensure!(
+                    compatible,
+                    "delta does not match block type; use transcript recording"
+                );
                 match delta["type"].as_str() {
                     Some("text_delta") => append(
                         block,
@@ -148,6 +181,10 @@ pub fn message_from_events(events: &[TranscriptEvent]) -> Result<Value> {
                 }
             }
             Some("message_delta") => {
+                anyhow::ensure!(
+                    open_blocks.is_empty(),
+                    "message_delta before content blocks closed"
+                );
                 let target = message
                     .as_mut()
                     .context("message_delta before message_start")?;
@@ -166,20 +203,39 @@ pub fn message_from_events(events: &[TranscriptEvent]) -> Result<Value> {
                         target["usage"][key] = value.clone();
                     }
                 }
+                saw_message_delta = true;
             }
-            Some("message_stop") => stopped = true,
+            Some("content_block_stop") => {
+                let index = data["index"].as_u64().context("missing block index")?;
+                anyhow::ensure!(open_blocks.remove(&index), "stop without an open block");
+                if let Some(raw) = arguments.remove(&index) {
+                    let input: Value = serde_json::from_str(&raw)
+                        .context("incomplete tool input; use transcript recording")?;
+                    anyhow::ensure!(input.is_object(), "tool input must be an object");
+                    blocks.get_mut(&index).context("tool input without block")?["input"] = input;
+                }
+            }
+            Some("message_stop") => {
+                anyhow::ensure!(
+                    saw_message_delta && open_blocks.is_empty(),
+                    "message_stop before message completed"
+                );
+                anyhow::ensure!(
+                    message
+                        .as_ref()
+                        .and_then(|m| m["stop_reason"].as_str())
+                        .is_some(),
+                    "missing terminal stop_reason"
+                );
+                stopped = true;
+            }
             Some("error") => anyhow::bail!("upstream stream error"),
-            Some("ping" | "content_block_stop") => {}
+            Some("ping") => {}
             _ => anyhow::bail!("unsupported event; use transcript recording"),
         }
     }
     anyhow::ensure!(stopped, "stream did not reach message_stop");
     let mut message = message.context("missing message_start")?;
-    for (index, raw) in arguments {
-        let input: Value = serde_json::from_str(&raw)
-            .context("incomplete tool input; use transcript recording")?;
-        blocks.get_mut(&index).context("tool input without block")?["input"] = input;
-    }
     message["content"] = Value::Array(blocks.into_values().collect());
     Ok(message)
 }
