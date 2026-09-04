@@ -89,6 +89,12 @@ pub fn derive_script(
 
     let mut script = Map::new();
     script.insert("kind".to_owned(), Value::String("success".to_owned()));
+    if observation.truncated {
+        script.insert(
+            "finish_reason".to_owned(),
+            Value::String("length".to_owned()),
+        );
+    }
     if let Some(response_text) = observation.response_text {
         script.insert("response_text".to_owned(), Value::String(response_text));
     }
@@ -172,6 +178,7 @@ struct Observation {
     structured_output: Option<Value>,
     tool_calls: Vec<ObservedToolCall>,
     usage: Option<(u64, u64)>,
+    truncated: bool,
 }
 
 struct ObservedToolCall {
@@ -189,7 +196,14 @@ fn observe_body(shape: ExchangeShape, body: &Value) -> Result<Observation> {
 }
 
 fn observe_responses_body(shape: ExchangeShape, body: &Value) -> Result<Observation> {
-    let mut observation = Observation::default();
+    let mut observation = Observation {
+        truncated: body.get("status").and_then(Value::as_str) == Some("incomplete")
+            && body
+                .pointer("/incomplete_details/reason")
+                .and_then(Value::as_str)
+                == Some("max_output_tokens"),
+        ..Observation::default()
+    };
 
     let output = body
         .get("output")
@@ -275,11 +289,14 @@ fn observe_responses_content_part(
 fn observe_chat_body(shape: ExchangeShape, body: &Value) -> Result<Observation> {
     let mut observation = Observation::default();
 
-    let message = body
+    let choice = body
         .get("choices")
         .and_then(Value::as_array)
         .and_then(|choices| choices.first())
-        .and_then(|choice| choice.get("message"))
+        .context("chat body did not contain choices[0]")?;
+    observation.truncated = choice.get("finish_reason").and_then(Value::as_str) == Some("length");
+    let message = choice
+        .get("message")
         .context("chat body did not contain choices[0].message")?;
 
     if let Some(content) = message.get("content").and_then(Value::as_str) {
@@ -369,12 +386,17 @@ fn observe_chat_stream(shape: ExchangeShape, events: &[RecordedSseEvent]) -> Res
             observation.usage = observe_usage(Some(usage), "prompt_tokens", "completion_tokens");
         }
 
-        let Some(delta) = chunk
+        let Some(choice) = chunk
             .get("choices")
             .and_then(Value::as_array)
             .and_then(|choices| choices.first())
-            .and_then(|choice| choice.get("delta"))
         else {
+            continue;
+        };
+        if choice.get("finish_reason").and_then(Value::as_str) == Some("length") {
+            observation.truncated = true;
+        }
+        let Some(delta) = choice.get("delta") else {
             continue;
         };
 

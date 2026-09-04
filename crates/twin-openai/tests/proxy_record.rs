@@ -773,3 +773,119 @@ async fn utility_proxy_forwards_credentials_headers_and_body() {
     assert_eq!(recorded_file["scenarios"], json!([]));
     std::fs::remove_file(recording).expect("recording should be removable");
 }
+
+#[tokio::test]
+async fn semantic_recording_replays_truncation_on_both_endpoints() {
+    let upstream = common::spawn_server().await.expect("upstream should spawn");
+    let scenarios = ["responses", "chat.completions"].map(|endpoint| {
+        json!({
+            "matcher": { "endpoint": endpoint },
+            "script": {
+                "kind": "success",
+                "response_text": "cut off mid",
+                "finish_reason": "length"
+            },
+            "sticky": true
+        })
+    });
+    let enqueue = client(&upstream.base_url, UPSTREAM_KEY)
+        .post_json("/__admin/scenarios", &json!({ "scenarios": scenarios }))
+        .await;
+    assert_eq!(enqueue.status(), 200);
+
+    let recording = recording_path();
+    let proxy = spawn(Config {
+        mode: Mode::ProxyRecord,
+        upstream_url: upstream.base_url.clone(),
+        upstream_api_key: Some(UPSTREAM_KEY.to_owned()),
+        recording_path: Some(recording.clone()),
+        ..common::test_config()
+    })
+    .await;
+    let proxy_client = client(&proxy, "truncation-suite");
+    let mut requests = Vec::new();
+    for stream in [false, true] {
+        requests.push((
+            "/v1/responses",
+            json!({
+                "model": "gpt-test", "input": "continue", "stream": stream
+            }),
+        ));
+        requests.push((
+            "/v1/chat/completions",
+            json!({
+                "model": "gpt-test",
+                "messages": [{ "role": "user", "content": "continue" }],
+                "stream": stream,
+                "stream_options": { "include_usage": true }
+            }),
+        ));
+    }
+    for (path, request) in &requests {
+        let response = proxy_client.post_json(path, request).await;
+        assert_eq!(response.status(), 200);
+        // Read to EOF so streamed exchanges finish recording.
+        response.bytes().await.expect("proxied body should read");
+    }
+
+    let recording_json: Value =
+        serde_json::from_slice(&std::fs::read(&recording).expect("recording should read"))
+            .expect("recording should parse");
+    let scenarios = recording_json["scenarios"].as_array().expect("scenarios");
+    assert_eq!(scenarios.len(), 4);
+    for scenario in scenarios {
+        assert_eq!(scenario["script"]["finish_reason"], "length");
+    }
+
+    let replay = spawn(Config {
+        scenarios_path: Some(recording.clone()),
+        ..common::test_config()
+    })
+    .await;
+    let replay_client = client(&replay, "truncation-suite");
+    for (path, request) in &requests {
+        let response = replay_client.post_json(path, request).await;
+        assert_eq!(response.status(), 200);
+        let bytes = response.bytes().await.expect("replayed body should read");
+        if request["stream"] == true {
+            let transcript = common::parse_sse_transcript(&bytes).expect("valid SSE");
+            if *path == "/v1/responses" {
+                let terminal = transcript.events.last().expect("terminal event");
+                assert_eq!(terminal.event.as_deref(), Some("response.incomplete"));
+                let data: Value = serde_json::from_str(&terminal.data).expect("event JSON");
+                assert_eq!(data["response"]["status"], "incomplete");
+                assert_eq!(
+                    data["response"]["incomplete_details"]["reason"],
+                    "max_output_tokens"
+                );
+            } else {
+                assert!(transcript.done);
+                assert_eq!(chat_stream_content(&transcript), "cut off mid");
+                let finish_reasons: Vec<Value> = transcript
+                    .events
+                    .iter()
+                    .filter(|event| event.data != "[DONE]")
+                    .filter_map(|event| {
+                        let chunk: Value = serde_json::from_str(&event.data).expect("chunk JSON");
+                        chunk
+                            .pointer("/choices/0/finish_reason")
+                            .filter(|reason| !reason.is_null())
+                            .cloned()
+                    })
+                    .collect();
+                assert_eq!(finish_reasons, vec![json!("length")]);
+            }
+        } else {
+            let body: Value = serde_json::from_slice(&bytes).expect("replayed JSON");
+            if *path == "/v1/responses" {
+                assert_eq!(body["status"], "incomplete");
+                assert_eq!(body["incomplete_details"]["reason"], "max_output_tokens");
+                assert_eq!(response_text(&body).as_deref(), Some("cut off mid"));
+            } else {
+                assert_eq!(body["choices"][0]["finish_reason"], "length");
+                assert_eq!(body["choices"][0]["message"]["content"], "cut off mid");
+            }
+        }
+    }
+    std::fs::remove_file(recording).expect("recording should be removed");
+}
