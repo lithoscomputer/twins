@@ -26,6 +26,52 @@ fn fixture(file: &TempFile) -> Value {
 }
 
 #[tokio::test]
+async fn invalid_semantic_script_does_not_poison_saved_recordings_or_append() {
+    let upstream = spawn_router(Router::new().route("/v1/messages", post(|axum::Json(req): axum::Json<Value>| async move {
+        let usage = if req["metadata"]["bad"] == true { json!({"input_tokens":"bad","output_tokens":1}) } else { json!({"input_tokens":1,"output_tokens":1}) };
+        axum::Json(json!({"type":"message","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":usage}))
+    }))).await;
+    let file = TempFile::new();
+    let proxy = spawn(proxy_config(
+        &upstream,
+        &file,
+        RecordFormat::Semantic,
+        false,
+    ))
+    .await;
+    proxy.message("suite", &request(false)).await;
+    let good_bytes = std::fs::read(&file.0).expect("good recording");
+    let mut bad_request = request(false);
+    bad_request["metadata"] = json!({"bad":true});
+    let response = proxy.message("suite", &bad_request).await;
+    assert_eq!(
+        response["usage"]["input_tokens"], "bad",
+        "upstream response still passes through"
+    );
+    assert_eq!(
+        std::fs::read(&file.0).expect("preserved recording"),
+        good_bytes
+    );
+    drop(proxy);
+    let append = spawn(proxy_config(&upstream, &file, RecordFormat::Semantic, true)).await;
+    append.message("suite", &request(false)).await;
+    let saved = fixture(&file);
+    assert_eq!(saved["scenarios"].as_array().expect("rows").len(), 2);
+    assert_eq!(saved["scenarios"][1]["scenario_id"], "suite/0002");
+    let replay = spawn(Config {
+        scenarios_path: Some(file.0.clone()),
+        ..config()
+    })
+    .await;
+    for _ in 0..2 {
+        assert_eq!(
+            common::text(&replay.message("suite", &request(false)).await),
+            "ok"
+        );
+    }
+}
+
+#[tokio::test]
 async fn exact_transcripts_replay_requests_outside_generator_validation() {
     let upstream = spawn_router(Router::new().route("/v1/messages", post(|| async {
         axum::Json(json!({"type":"message","content":[{"type":"text","text":"{\"items\":[]}"}],"stop_reason":"end_turn"}))

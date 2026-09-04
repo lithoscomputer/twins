@@ -1,5 +1,5 @@
 //! Semantic recording preserves native content blocks and terminal state.
-use crate::engine::scenario::TranscriptEvent;
+use crate::engine::scenario::{validate_scenario_ids, ScenarioEnvelope, TranscriptEvent};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -80,6 +80,13 @@ pub fn derive_script(body: &Value) -> Result<Value> {
             script[field] = value.clone();
         }
     }
+    // Use the same typed format and validation as replay/append startup.
+    // Reject the exchange before a bad row can poison the recording file.
+    let envelope: ScenarioEnvelope = serde_json::from_value(json!({"scenarios":[{
+        "matcher":{"endpoint":"messages"}, "script":&script
+    }]}))
+    .context("derived script cannot be loaded for replay")?;
+    validate_scenario_ids(&envelope.scenarios).map_err(anyhow::Error::msg)?;
     Ok(script)
 }
 

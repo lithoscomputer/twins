@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
-use twin_anthropic::engine::scenario::TranscriptEvent;
-use twin_anthropic::record::{message_from_events, parse_sse_events, request_hash};
+use twin_anthropic::engine::scenario::{validate_scenario_ids, ScenarioEnvelope, TranscriptEvent};
+use twin_anthropic::record::{derive_script, message_from_events, parse_sse_events, request_hash};
 
 fn event(value: &Value) -> TranscriptEvent {
     TranscriptEvent {
@@ -30,6 +30,32 @@ fn text_stream() -> Vec<TranscriptEvent> {
         ),
         event(&json!({"type":"message_stop"})),
     ]
+}
+
+#[test]
+fn derived_scripts_must_pass_replay_startup_validation() {
+    let good = json!({"type":"message","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":2,"vendor_usage":{"units":3}}});
+    for (field, invalid) in [
+        ("usage", json!({"input_tokens":"bad","output_tokens":1})),
+        ("usage", json!({"input_tokens":-1})),
+        ("usage", json!([])),
+        ("stop_sequence", json!(42)),
+        ("stop_reason", json!("vendor_future_reason")),
+    ] {
+        let mut body = good.clone();
+        body[field] = invalid;
+        assert!(
+            derive_script(&body).is_err(),
+            "accepted invalid response: {body}"
+        );
+    }
+    let script = derive_script(&good).expect("valid derived script");
+    assert_eq!(script["usage"], good["usage"]);
+    let envelope: ScenarioEnvelope = serde_json::from_value(
+        json!({"scenarios":[{"matcher":{"endpoint":"messages"},"script":script}]}),
+    )
+    .expect("loadable fixture");
+    validate_scenario_ids(&envelope.scenarios).expect("valid fixture");
 }
 
 #[test]
