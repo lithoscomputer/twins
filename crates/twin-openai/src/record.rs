@@ -424,12 +424,15 @@ fn parse_arguments(arguments: &str) -> Value {
 
 /// Hash of a request body for transcript matching.
 ///
-/// The body is parsed and re-serialized before hashing, so the hash follows
-/// the JSON content rather than incidental whitespace. The hash is FNV-1a
+/// Object keys are sorted recursively before hashing, so whitespace and key
+/// order do not affect matching. Array order is preserved. The hash is FNV-1a
 /// over that canonical text — a matcher key, not a security boundary.
+/// Recordings made with the earlier, order-dependent hash must be re-recorded
+/// if their request keys were not already sorted.
 #[must_use]
 pub fn request_hash(body: &[u8]) -> Option<String> {
-    let value: Value = serde_json::from_slice(body).ok()?;
+    let mut value: Value = serde_json::from_slice(body).ok()?;
+    value.sort_all_objects();
     let canonical = value.to_string();
 
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;

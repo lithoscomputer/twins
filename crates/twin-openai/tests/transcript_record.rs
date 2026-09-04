@@ -251,8 +251,17 @@ async fn transcript_replays_json_verbatim_and_matches_by_hash() {
         .expect("replay body should parse");
     assert_eq!(second_body, upstream_json_body("Second question."));
 
+    // Reordering object keys, including inside messages, must not change
+    // which recorded request matches.
+    let reordered_first = json!({
+        "prompt_cache_key": "lithos-abc123",
+        "venice_parameters": { "include_venice_system_prompt": false },
+        "stream": false,
+        "messages": [{ "content": "First question.", "role": "user" }],
+        "model": "deepseek-v4-flash-0731"
+    });
     let first_replay = replay_client
-        .post_json("/v1/chat/completions", &first)
+        .post_json("/v1/chat/completions", &reordered_first)
         .await;
     assert_eq!(first_replay.status(), 200);
     let first_body: Value = first_replay.json().await.expect("replay body should parse");
