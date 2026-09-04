@@ -2,18 +2,18 @@
 mod common;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
-use std::{env, fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 use twin_anthropic::record::{derive_script, message_from_events, parse_sse_events};
 
 #[tokio::test]
 #[ignore = "requires ANTHROPIC_API_KEY and explicit live API access"]
 async fn live_anthropic_contract() -> Result<()> {
-    let key = required_api_key(env::var("ANTHROPIC_API_KEY").ok())?;
-    let base = env::var("TWIN_ANTHROPIC_LIVE_BASE_URL")
-        .unwrap_or_else(|_| "https://api.anthropic.com".to_owned());
-    let model =
-        env::var("TWIN_ANTHROPIC_LIVE_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_owned());
-    let record = env::var("TWIN_ANTHROPIC_RECORD_FIXTURES").is_ok_and(|v| v == "1");
+    let LiveConfig {
+        key,
+        base,
+        model,
+        record,
+    } = LiveConfig::from_env(&ProcessEnvironment)?;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
     let mut fixture: Value = serde_json::from_slice(&fs::read(root.join("contracts.json"))?)?;
     let case_count = fixture["cases"].as_array().context("cases")?.len();
@@ -111,21 +111,91 @@ async fn live_anthropic_contract() -> Result<()> {
     Ok(())
 }
 
-fn required_api_key(value: Option<String>) -> Result<String> {
-    value
-        .filter(|key| !key.trim().is_empty())
-        .context("ANTHROPIC_API_KEY must be set and non-empty for an explicit live run")
+trait Environment {
+    fn get(&self, name: &str) -> Option<String>;
+}
+
+struct ProcessEnvironment;
+
+impl Environment for ProcessEnvironment {
+    fn get(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
+}
+
+struct LiveConfig {
+    key: String,
+    base: String,
+    model: String,
+    record: bool,
+}
+
+impl LiveConfig {
+    fn from_env(environment: &impl Environment) -> Result<Self> {
+        let key = environment
+            .get("ANTHROPIC_API_KEY")
+            .filter(|key| !key.trim().is_empty())
+            .context("ANTHROPIC_API_KEY must be set and non-empty for an explicit live run")?;
+        Ok(Self {
+            key,
+            base: environment
+                .get("TWIN_ANTHROPIC_LIVE_BASE_URL")
+                .unwrap_or_else(|| "https://api.anthropic.com".to_owned()),
+            model: environment
+                .get("TWIN_ANTHROPIC_LIVE_MODEL")
+                .unwrap_or_else(|| "claude-sonnet-4-6".to_owned()),
+            record: environment
+                .get("TWIN_ANTHROPIC_RECORD_FIXTURES")
+                .is_some_and(|v| v == "1"),
+        })
+    }
+}
+
+struct FakeEnvironment(HashMap<&'static str, String>);
+
+impl Environment for FakeEnvironment {
+    fn get(&self, name: &str) -> Option<String> {
+        self.0.get(name).cloned()
+    }
 }
 
 #[test]
 fn explicit_live_runs_require_nonempty_credentials() {
     for value in [None, Some(String::new()), Some(" \t\n".to_owned())] {
-        assert!(required_api_key(value).is_err());
+        let environment = FakeEnvironment(
+            value
+                .map(|key| ("ANTHROPIC_API_KEY", key))
+                .into_iter()
+                .collect(),
+        );
+        assert!(LiveConfig::from_env(&environment).is_err());
     }
-    assert_eq!(
-        required_api_key(Some("test-key".to_owned())).expect("configured key"),
-        "test-key"
-    );
+    let environment = FakeEnvironment(HashMap::from([(
+        "ANTHROPIC_API_KEY",
+        "test-key".to_owned(),
+    )]));
+    let config = LiveConfig::from_env(&environment).expect("configured key");
+    assert_eq!(config.key, "test-key");
+    assert_eq!(config.base, "https://api.anthropic.com");
+    assert_eq!(config.model, "claude-sonnet-4-6");
+    assert!(!config.record);
+}
+
+#[test]
+fn live_configuration_reads_overrides_from_a_fake_environment() {
+    let environment = FakeEnvironment(HashMap::from([
+        ("ANTHROPIC_API_KEY", "test-key".to_owned()),
+        (
+            "TWIN_ANTHROPIC_LIVE_BASE_URL",
+            "http://example.invalid".to_owned(),
+        ),
+        ("TWIN_ANTHROPIC_LIVE_MODEL", "claude-test".to_owned()),
+        ("TWIN_ANTHROPIC_RECORD_FIXTURES", "1".to_owned()),
+    ]));
+    let config = LiveConfig::from_env(&environment).expect("fake config");
+    assert_eq!(config.base, "http://example.invalid");
+    assert_eq!(config.model, "claude-test");
+    assert!(config.record);
 }
 
 fn write_atomic(path: &Path, value: &Value) -> Result<()> {
