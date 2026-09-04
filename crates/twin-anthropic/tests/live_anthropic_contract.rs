@@ -8,10 +8,7 @@ use twin_anthropic::record::{derive_script, message_from_events, parse_sse_event
 #[tokio::test]
 #[ignore = "requires ANTHROPIC_API_KEY and explicit live API access"]
 async fn live_anthropic_contract() -> Result<()> {
-    let Ok(key) = env::var("ANTHROPIC_API_KEY") else {
-        eprintln!("skipping: ANTHROPIC_API_KEY is unset");
-        return Ok(());
-    };
+    let key = required_api_key(env::var("ANTHROPIC_API_KEY").ok())?;
     let base = env::var("TWIN_ANTHROPIC_LIVE_BASE_URL")
         .unwrap_or_else(|_| "https://api.anthropic.com".to_owned());
     let model =
@@ -19,6 +16,8 @@ async fn live_anthropic_contract() -> Result<()> {
     let record = env::var("TWIN_ANTHROPIC_RECORD_FIXTURES").is_ok_and(|v| v == "1");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
     let mut fixture: Value = serde_json::from_slice(&fs::read(root.join("contracts.json"))?)?;
+    let case_count = fixture["cases"].as_array().context("cases")?.len();
+    anyhow::ensure!(case_count > 0, "no live Messages cases configured");
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_mins(3))
         .build()?;
@@ -94,6 +93,7 @@ async fn live_anthropic_contract() -> Result<()> {
         models.json::<Value>().await?["data"].is_array(),
         "invalid model list"
     );
+    eprintln!("live contract: completed {case_count} Messages cases, count_tokens, and models");
     if record {
         fixture["provenance"] = json!("live Anthropic API capture");
         write_atomic(
@@ -110,6 +110,24 @@ async fn live_anthropic_contract() -> Result<()> {
     }
     Ok(())
 }
+
+fn required_api_key(value: Option<String>) -> Result<String> {
+    value
+        .filter(|key| !key.trim().is_empty())
+        .context("ANTHROPIC_API_KEY must be set and non-empty for an explicit live run")
+}
+
+#[test]
+fn explicit_live_runs_require_nonempty_credentials() {
+    for value in [None, Some(String::new()), Some(" \t\n".to_owned())] {
+        assert!(required_api_key(value).is_err());
+    }
+    assert_eq!(
+        required_api_key(Some("test-key".to_owned())).expect("configured key"),
+        "test-key"
+    );
+}
+
 fn write_atomic(path: &Path, value: &Value) -> Result<()> {
     let tmp = path.with_extension("tmp");
     let mut bytes = serde_json::to_vec_pretty(value)?;
