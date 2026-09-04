@@ -26,6 +26,103 @@ fn fixture(file: &TempFile) -> Value {
 }
 
 #[tokio::test]
+async fn exact_transcripts_replay_requests_outside_generator_validation() {
+    let upstream = spawn_router(Router::new().route("/v1/messages", post(|| async {
+        axum::Json(json!({"type":"message","content":[{"type":"text","text":"{\"items\":[]}"}],"stop_reason":"end_turn"}))
+    }))).await;
+    let file = TempFile::new();
+    let proxy = spawn(proxy_config(
+        &upstream,
+        &file,
+        RecordFormat::Transcript,
+        false,
+    ))
+    .await;
+    let mut req = request(false);
+    req["output_config"] = json!({"format":{"type":"json_schema","schema":{"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"],"additionalProperties":false}}});
+    // The gateway also permits null metadata, outside MessagesRequest's type.
+    req["metadata"] = Value::Null;
+    let recorded = proxy.post("/v1/messages", "suite", &req).await;
+    assert_eq!(recorded.status(), 200);
+    let expected = recorded.bytes().await.expect("recorded bytes");
+    let replay = spawn(Config {
+        scenarios_path: Some(file.0.clone()),
+        ..config()
+    })
+    .await;
+    assert_eq!(
+        replay
+            .client
+            .post(format!("{}/v1/messages", replay.url))
+            .header("anthropic-version", "2023-06-01")
+            .json(&req)
+            .send()
+            .await
+            .expect("unauthenticated request")
+            .status(),
+        401
+    );
+    assert_eq!(
+        replay.post("/v1/messages", "other", &req).await.status(),
+        400
+    );
+    let mut different = req.clone();
+    different["max_tokens"] = json!(129);
+    assert_eq!(
+        replay
+            .post("/v1/messages", "suite", &different)
+            .await
+            .status(),
+        400
+    );
+    let response = replay.post("/v1/messages", "suite", &req).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.bytes().await.expect("replayed bytes"), expected);
+    assert_eq!(
+        replay.logs("suite").await["requests"]
+            .as_array()
+            .expect("logs")
+            .len(),
+        1
+    );
+    assert_eq!(
+        replay.post("/v1/messages", "suite", &req).await.status(),
+        400
+    );
+}
+
+#[tokio::test]
+async fn exact_transcripts_do_not_jump_ahead_of_earlier_matching_scenarios() {
+    let server = spawn(config()).await;
+    let req = request(false);
+    let hash = twin_anthropic::record::request_hash(&serde_json::to_vec(&req).expect("JSON"));
+    let mut transcript =
+        scenario(json!({"kind":"transcript","status":200,"body":{"recorded":true}}));
+    transcript["matcher"]["request_hash"] = json!(hash);
+    transcript["repeat"] = json!(2);
+    server
+        .enqueue(
+            "suite",
+            json!([
+                scenario(json!({"kind":"success","response_text":"first"})),
+                transcript
+            ]),
+        )
+        .await;
+    assert_eq!(common::text(&server.message("suite", &req).await), "first");
+    for _ in 0..2 {
+        assert_eq!(
+            server.message("suite", &req).await,
+            json!({"recorded":true})
+        );
+    }
+    assert_eq!(
+        common::text(&server.message("suite", &req).await),
+        "deterministic: hello"
+    );
+}
+
+#[tokio::test]
 async fn semantic_proxy_replays_text_thinking_tools_usage_and_stop_reasons() {
     let upstream = spawn(config()).await;
     let file = TempFile::new();

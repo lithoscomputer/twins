@@ -153,12 +153,26 @@ impl AppState {
         namespace: &NamespaceKey,
         request: &RequestContext,
     ) -> Option<Scenario> {
+        self.take_matching_scenario_if(namespace, request, |_| true)
+    }
+
+    /// Check the first matching scenario before consuming it. A rejected
+    /// candidate stays in place; later entries never jump ahead of it.
+    pub(crate) fn take_matching_scenario_if(
+        &self,
+        namespace: &NamespaceKey,
+        request: &RequestContext,
+        accept: impl FnOnce(&Scenario) -> bool,
+    ) -> Option<Scenario> {
         let mut namespaces = self.inner.namespaces.lock().expect("namespaces lock");
         let scenarios = &mut self.namespace_state(&mut namespaces, namespace).scenarios;
         let position = scenarios
             .iter()
             .position(|scenario| scenario.matches(request))?;
         let scenario = &mut scenarios[position];
+        if !accept(scenario) {
+            return None;
+        }
         if scenario.sticky {
             return Some(scenario.clone());
         }

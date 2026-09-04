@@ -51,6 +51,12 @@ async fn handle(state: &AppState, headers: &HeaderMap, body: &[u8], count: bool)
             return AnthropicError::invalid_request("body", &error.to_string()).into_response()
         }
     };
+    let hash = crate::record::request_hash(body);
+    if let Some(script) =
+        crate::engine::select_recorded_transcript(state, &namespace, &parsed, hash.clone(), count)
+    {
+        return transcript_response(script);
+    }
     if count {
         const ALLOWED: &[&str] = &[
             "model",
@@ -77,13 +83,7 @@ async fn handle(state: &AppState, headers: &HeaderMap, body: &[u8], count: bool)
             return AnthropicError::invalid_request("body", &error.to_string()).into_response()
         }
     };
-    let script = match select_script(
-        state,
-        &namespace,
-        &request,
-        crate::record::request_hash(body),
-        count,
-    ) {
+    let script = match select_script(state, &namespace, &request, hash, count) {
         Ok(s) => s.unwrap_or(ScenarioScript::Success(Box::default())),
         Err(e) => return e.into_response(),
     };
@@ -157,35 +157,41 @@ async fn handle(state: &AppState, headers: &HeaderMap, body: &[u8], count: bool)
             ))
             .await
         }
-        ScenarioScript::Transcript {
-            status,
-            content_type,
-            body,
-            body_text,
-            events,
-            headers,
-        } => {
-            let mut response = if let Some(events) = events {
-                crate::sse::event_response(events, &SuccessScript::default())
-            } else {
-                let mut r = Response::new(Body::from(
-                    body_text.unwrap_or_else(|| body.unwrap_or(Value::Null).to_string()),
-                ));
-                r.headers_mut().insert(
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_static("application/json"),
-                );
-                r
-            };
-            *response.status_mut() =
-                StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            apply_headers(&mut response, headers);
-            if let Some(value) = content_type.and_then(|s| HeaderValue::try_from(s).ok()) {
-                response.headers_mut().insert(header::CONTENT_TYPE, value);
-            }
-            response
-        }
+        script @ ScenarioScript::Transcript { .. } => transcript_response(script),
     }
+}
+
+fn transcript_response(script: ScenarioScript) -> Response {
+    let ScenarioScript::Transcript {
+        status,
+        content_type,
+        body,
+        body_text,
+        events,
+        headers,
+    } = script
+    else {
+        unreachable!("only transcript scripts use this renderer")
+    };
+    let mut response = if let Some(events) = events {
+        crate::sse::event_response(events, &SuccessScript::default())
+    } else {
+        let mut r = Response::new(Body::from(
+            body_text.unwrap_or_else(|| body.unwrap_or(Value::Null).to_string()),
+        ));
+        r.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        r
+    };
+    *response.status_mut() =
+        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    apply_headers(&mut response, headers);
+    if let Some(value) = content_type.and_then(|s| HeaderValue::try_from(s).ok()) {
+        response.headers_mut().insert(header::CONTENT_TYPE, value);
+    }
+    response
 }
 
 pub fn apply_headers(response: &mut Response, headers: BTreeMap<String, String>) {
