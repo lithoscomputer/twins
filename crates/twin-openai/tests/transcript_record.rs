@@ -101,9 +101,9 @@ async fn upstream_chat(body: Bytes) -> HttpResponse<Body> {
     if stream {
         let mut sse = String::new();
         for frame in upstream_sse_frames() {
-            sse.push_str("data: ");
+            sse.push_str("data:");
             sse.push_str(&frame);
-            sse.push_str("\n\n");
+            sse.push_str("\r\n\r\n");
         }
         HttpResponse::builder()
             .header(header::CONTENT_TYPE, "text/event-stream")
@@ -308,15 +308,25 @@ async fn transcript_replays_sse_events_one_by_one() {
 
     // Event for event, the replay is the recording — the deltas stay
     // separate instead of collapsing into one canonical delta.
-    let recorded_transcript =
-        common::parse_sse_transcript(&recorded_bytes).expect("recorded SSE should parse");
+    let expected_recorded = format!(
+        "data:{}\r\n\r\n",
+        upstream_sse_frames().join("\r\n\r\ndata:")
+    );
+    assert_eq!(recorded_bytes.as_ref(), expected_recorded.as_bytes());
     let replayed_transcript =
         common::parse_sse_transcript(&replayed_bytes).expect("replayed SSE should parse");
-    assert_eq!(replayed_transcript.events, recorded_transcript.events);
     assert_eq!(
-        replayed_transcript.events.len(),
-        upstream_sse_frames().len()
+        replayed_transcript
+            .events
+            .iter()
+            .map(|event| event.data.clone())
+            .collect::<Vec<_>>(),
+        upstream_sse_frames()
     );
+    assert!(replayed_transcript
+        .events
+        .iter()
+        .all(|event| event.event.is_none()));
 
     let _ = std::fs::remove_file(&recording);
 }

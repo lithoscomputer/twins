@@ -125,32 +125,41 @@ pub fn derive_script(
     Ok(script)
 }
 
-/// Parse an SSE body into its events. Tolerates `id:` and comment lines and
-/// a missing trailing blank line.
+/// Parse SSE events with LF, CRLF, or CR line endings and optional spaces
+/// after field colons. Ignores comments and unrecorded fields such as `id`.
+/// Also tolerates a missing trailing blank line in captured responses.
 pub fn parse_sse_events(body: &[u8]) -> Result<Vec<RecordedSseEvent>> {
     let text = std::str::from_utf8(body).context("sse body was not valid utf-8")?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let mut events = Vec::new();
+    let mut event = None;
+    let mut data_lines = Vec::new();
 
-    for block in text.split("\n\n") {
-        if block.trim().is_empty() {
+    // The final empty line also flushes a capture without a terminating
+    // blank line, preserving the recorder's existing EOF tolerance.
+    for line in text.split('\n').chain(std::iter::once("")) {
+        if line.is_empty() {
+            if !data_lines.is_empty() {
+                events.push(RecordedSseEvent {
+                    event: event.take(),
+                    data: data_lines.join("\n"),
+                });
+            }
+            event = None;
+            data_lines.clear();
+            continue;
+        }
+        if line.starts_with(':') {
             continue;
         }
 
-        let mut event = None;
-        let mut data_lines = Vec::new();
-        for line in block.lines() {
-            if let Some(value) = line.strip_prefix("event: ") {
-                event = Some(value.to_owned());
-            } else if let Some(value) = line.strip_prefix("data: ") {
-                data_lines.push(value.to_owned());
-            }
-        }
-
-        if event.is_some() || !data_lines.is_empty() {
-            events.push(RecordedSseEvent {
-                event,
-                data: data_lines.join("\n"),
-            });
+        let (field, value) = line.split_once(':').unwrap_or((line, ""));
+        let value = value.strip_prefix(' ').unwrap_or(value);
+        match field {
+            "event" => event = Some(value.to_owned()),
+            "data" => data_lines.push(value),
+            _ => {}
         }
     }
 
