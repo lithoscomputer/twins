@@ -2,8 +2,13 @@
 
 Deterministic protocol twins for black-box integration tests.
 
-This repository currently contains [`twin-openai`](crates/twin-openai), an
-OpenAI-compatible HTTP server for local testing.
+This repository contains two HTTP servers for local testing:
+
+- [`twin-openai`](crates/twin-openai): OpenAI Responses and Chat Completions.
+- [`twin-anthropic`](crates/twin-anthropic): Anthropic Messages and token counting.
+
+Both include scenario scripting, failure injection, request logs, a debug UI,
+and proxy recording with offline replay.
 
 ## Run twin-openai
 
@@ -33,6 +38,18 @@ twin-openai = { git = "https://github.com/lithoscomputer/twins", rev = "<commit-
 
 The library exports an Axum router through `build_app()` and
 `build_app_with_config()`.
+
+## Run twin-anthropic
+
+```bash
+cargo run -p twin-anthropic
+```
+
+It listens on `127.0.0.1:3001`. Use a fake `x-api-key` per test and the
+`anthropic-version: 2023-06-01` header. The crate also exports `build_app()`
+and `build_app_with_config()` for library use. See its
+[README](crates/twin-anthropic/README.md) for configuration, scenarios,
+recording, and a `lithos-llm` catalog example.
 
 ## Release platforms
 

@@ -1,0 +1,1595 @@
+[
+  {
+    "case_id": "a_levels_model_takes_an_effort_level_and_adaptive_thinking",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 8000,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Plan a trip to Paris.",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "output_config": {
+        "effort": "high"
+      },
+      "stream": false,
+      "thinking": {
+        "type": "adaptive"
+      }
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "a_mid_conversation_system_message_is_hoisted_where_the_model_rejects_system_turns",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the capital of France?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "Paris.",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "text": "And of Spain?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": "Answer with just the city name.\n\nFrom now on, write every answer in uppercase letters only.",
+      "thinking": {
+        "type": "adaptive"
+      }
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "a_mid_conversation_system_message_stays_in_place_where_the_model_takes_system_turns",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the capital of France?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "Paris.",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "text": "And of Spain?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "From now on, write every answer in uppercase letters only.",
+              "type": "text"
+            }
+          ],
+          "role": "system"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": "Answer with just the city name.",
+      "thinking": {
+        "type": "adaptive"
+      }
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "a_model_without_effort_levels_takes_a_thinking_budget",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 8000,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Plan a trip to Paris.",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "thinking": {
+        "budget_tokens": 6000,
+        "type": "enabled"
+      }
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "a_model_without_forced_tool_choice_refuses_required_and_named_choice_before_dispatch-2",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 8000,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "output_config": {
+        "effort": "high",
+        "format": {
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "population": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "city",
+              "population"
+            ],
+            "type": "object"
+          },
+          "type": "json_schema"
+        }
+      },
+      "stream": false,
+      "thinking": {
+        "type": "adaptive"
+      },
+      "tool_choice": {
+        "type": "auto"
+      },
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "auto_cache_disabled_sends_no_breakpoints",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "First",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "Answer",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "text": "Second",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "Answer",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "text": "Third",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": "Keep it short.",
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "auto_cache_marks_the_system_tools_and_conversation_prefix",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "First",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "Answer",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "cache_control": {
+                "type": "ephemeral"
+              },
+              "text": "Second",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "Answer",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "text": "Third",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Keep it short.",
+          "type": "text"
+        }
+      ],
+      "tools": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "beta_headers_leave_the_body_and_become_one_header",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Hello",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false
+    },
+    "headers": {
+      "anthropic-beta": "context-1m-2025-08-07,files-api-2025-04-14",
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "counts_input_tokens_without_max_tokens",
+    "path": "/v1/messages/count_tokens",
+    "body": {
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "system": "Keep it short.",
+      "thinking": {
+        "type": "enabled"
+      },
+      "tool_choice": {
+        "type": "auto"
+      },
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_a_json_object_response_format",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Give me the city and its population.",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "You must respond with valid JSON only, no other text.",
+          "type": "text"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_a_json_schema_response_format",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Give me the city and its population.",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "output_config": {
+        "format": {
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "population": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "city",
+              "population"
+            ],
+            "type": "object"
+          },
+          "type": "json_schema"
+        }
+      },
+      "stream": false
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_a_multi_turn_conversation",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "cache_control": {
+                "type": "ephemeral"
+              },
+              "text": "What is the capital of France?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "Paris.",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "text": "And of Spain?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Keep it short.",
+          "type": "text"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_a_named_tool_choice",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Use the tools when they help.",
+          "type": "text"
+        }
+      ],
+      "tool_choice": {
+        "name": "get_weather",
+        "type": "tool"
+      },
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        },
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Reads the current time in a time zone",
+          "input_schema": {
+            "properties": {
+              "zone": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone"
+            ],
+            "type": "object"
+          },
+          "name": "get_time"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_a_tool_round_trip",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "cache_control": {
+                "type": "ephemeral"
+              },
+              "text": "What is the weather in Paris and Madrid?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "Looking both up.",
+              "type": "text"
+            },
+            {
+              "id": "call_paris",
+              "input": {
+                "city": "Paris"
+              },
+              "name": "get_weather",
+              "type": "tool_use"
+            },
+            {
+              "id": "call_madrid",
+              "input": {
+                "city": "Madrid"
+              },
+              "name": "get_weather",
+              "type": "tool_use"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "content": "18C and clear",
+              "is_error": false,
+              "tool_use_id": "call_paris",
+              "type": "tool_result"
+            },
+            {
+              "content": "the city is unknown",
+              "is_error": true,
+              "tool_use_id": "call_madrid",
+              "type": "tool_result"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "tools": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_inline_attachments",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Describe both attachments.",
+              "type": "text"
+            },
+            {
+              "source": {
+                "data": "aW1hZ2UtYnl0ZXM=",
+                "media_type": "image/png",
+                "type": "base64"
+              },
+              "type": "image"
+            },
+            {
+              "source": {
+                "data": "cGRmLWJ5dGVz",
+                "media_type": "application/pdf",
+                "type": "base64"
+              },
+              "title": "report.pdf",
+              "type": "document"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_replayed_reasoning",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "cache_control": {
+                "type": "ephemeral"
+              },
+              "text": "Is 91 prime?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "signature": "sig-abc",
+              "thinking": "91 is 7 times 13.",
+              "type": "thinking"
+            },
+            {
+              "data": "cmVkYWN0ZWQtcGF5bG9hZA==",
+              "type": "redacted_thinking"
+            },
+            {
+              "text": "No, 91 is not prime.",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "text": "What about 97?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_request_metadata",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Hello",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "metadata": {
+        "tenant": "acme"
+      },
+      "model": "claude-sonnet-4-6",
+      "stream": false
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_sampling_controls_and_stop_sequences",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Write one sentence.",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "metadata": {
+        "tenant": "acme"
+      },
+      "model": "claude-sonnet-4-6",
+      "stop_sequences": [
+        "END",
+        "STOP"
+      ],
+      "stream": false,
+      "temperature": 0.7,
+      "top_p": 0.9
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_the_base_request",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Hello",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_tool_choice_auto",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Use the tools when they help.",
+          "type": "text"
+        }
+      ],
+      "tool_choice": {
+        "type": "auto"
+      },
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        },
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Reads the current time in a time zone",
+          "input_schema": {
+            "properties": {
+              "zone": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone"
+            ],
+            "type": "object"
+          },
+          "name": "get_time"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_tool_choice_none",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Use the tools when they help.",
+          "type": "text"
+        }
+      ],
+      "tool_choice": {
+        "type": "none"
+      },
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        },
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Reads the current time in a time zone",
+          "input_schema": {
+            "properties": {
+              "zone": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone"
+            ],
+            "type": "object"
+          },
+          "name": "get_time"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_tool_choice_required",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Use the tools when they help.",
+          "type": "text"
+        }
+      ],
+      "tool_choice": {
+        "type": "any"
+      },
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        },
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Reads the current time in a time zone",
+          "input_schema": {
+            "properties": {
+              "zone": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone"
+            ],
+            "type": "object"
+          },
+          "name": "get_time"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_tools_and_decodes_a_tool_call",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Use the tools when they help.",
+          "type": "text"
+        }
+      ],
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        },
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Reads the current time in a time zone",
+          "input_schema": {
+            "properties": {
+              "zone": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone"
+            ],
+            "type": "object"
+          },
+          "name": "get_time"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "encodes_url_attachments",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Describe both attachments.",
+              "type": "text"
+            },
+            {
+              "source": {
+                "type": "url",
+                "url": "https://example.com/cat.png"
+              },
+              "type": "image"
+            },
+            {
+              "source": {
+                "type": "url",
+                "url": "https://example.com/report.pdf"
+              },
+              "title": "report.pdf",
+              "type": "document"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "keeps_an_image_a_tool_returned",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Chart last week's sales.",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "id": "call_chart",
+              "input": {
+                "range": "7d"
+              },
+              "name": "render_chart",
+              "type": "tool_use"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "content": [
+                {
+                  "text": "Here is the chart.",
+                  "type": "text"
+                },
+                {
+                  "source": {
+                    "data": "Y2hhcnQtYnl0ZXM=",
+                    "media_type": "image/png",
+                    "type": "base64"
+                  },
+                  "type": "image"
+                }
+              ],
+              "is_error": false,
+              "tool_use_id": "call_chart",
+              "type": "tool_result"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "tools": [
+        {
+          "description": "Renders a chart",
+          "input_schema": {
+            "type": "object"
+          },
+          "name": "render_chart"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "keeps_json_a_tool_returned",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "id": "call_weather",
+              "input": {
+                "city": "Paris"
+              },
+              "name": "get_weather",
+              "type": "tool_use"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "content": [
+                {
+                  "text": "{\"city\":\"Paris\",\"high_c\":21}",
+                  "type": "text"
+                },
+                {
+                  "text": "Fetched at 09:00.",
+                  "type": "text"
+                }
+              ],
+              "is_error": false,
+              "tool_use_id": "call_weather",
+              "type": "tool_result"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "type": "object"
+          },
+          "name": "get_weather"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "raw_options_override_generated_fields",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 2048,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Hello",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "temperature": 0.9,
+      "thinking": {
+        "type": "enabled"
+      }
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "expected_status": 400,
+    "note": "This wire-encoding fixture enables thinking without budget_tokens. Generation validation rejects the missing budget."
+  },
+  {
+    "case_id": "replays_provider_native_content",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "cache_control": {
+                "type": "ephemeral"
+              },
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "encrypted_content": "opaque-payload",
+              "id": "rs_replay"
+            },
+            {
+              "id": "call_replay",
+              "input": {
+                "city": "Paris"
+              },
+              "name": "get_weather",
+              "type": "tool_use"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "content": "18C and clear",
+              "is_error": false,
+              "tool_use_id": "call_replay",
+              "type": "tool_result"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": false,
+      "tools": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "expected_status": 400,
+    "note": "This opaque passthrough fixture contains a content block without type. It proves client forwarding, but is not a valid native Messages request."
+  },
+  {
+    "case_id": "sends_only_the_selected_provider_namespace",
+    "path": "/v1/messages",
+    "body": {
+      "max_output_tokens": 256,
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Hello",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "service_tier": "flex",
+      "stream": false
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "streams_text_reasoning_and_a_tool_call",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is the weather in Paris?",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "stream": true,
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Use the tools when they help.",
+          "type": "text"
+        }
+      ],
+      "tools": [
+        {
+          "description": "Reads the current weather for a city",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        },
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Reads the current time in a time zone",
+          "input_schema": {
+            "properties": {
+              "zone": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone"
+            ],
+            "type": "object"
+          },
+          "name": "get_time"
+        }
+      ]
+    },
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  {
+    "case_id": "the_fast_speed_tier_carries_its_own_beta",
+    "path": "/v1/messages",
+    "body": {
+      "max_tokens": 128,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Hello",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-6",
+      "speed": "fast",
+      "stream": false
+    },
+    "headers": {
+      "anthropic-beta": "fast-mode-2026-02-01",
+      "anthropic-version": "2023-06-01"
+    }
+  }
+]

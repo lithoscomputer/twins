@@ -1,0 +1,67 @@
+name: Nightly Anthropic drift
+
+on:
+  schedule:
+    - cron: "30 9 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - name: Capture live contract
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: mise run record:anthropic
+      - id: diff
+        name: Check contract drift
+        shell: bash
+        run: |
+          if git diff --quiet -- crates/twin-anthropic/fixtures/contracts.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            git restore -- crates/twin-anthropic/fixtures/scenarios.json
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - id: replay
+        if: steps.diff.outputs.changed == 'true'
+        continue-on-error: true
+        run: mise run replay:anthropic
+      - name: Open drift PR
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPLAY_OUTCOME: ${{ steps.replay.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="nightly/anthropic-drift-$(date -u +%Y-%m-%d-%H%M%S)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add crates/twin-anthropic/fixtures/contracts.json crates/twin-anthropic/fixtures/scenarios.json
+          git commit -m "Update recorded Anthropic contract fixtures"
+          git push origin "$branch"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          result = os.environ["REPLAY_OUTCOME"]
+          Path("/tmp/anthropic-drift-pr.md").write_text(
+              "The live Anthropic contract changed. The fixtures contain the new captures.\n\n"
+              f"Offline replay: **{result}**. A replay failure means the twin needs a protocol fix.\n"
+          )
+          PY
+          gh pr create --base main --head "$branch" \
+            --title "Nightly Anthropic drift: recorded contract changed" \
+            --body-file /tmp/anthropic-drift-pr.md

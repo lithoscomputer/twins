@@ -1,0 +1,655 @@
+{
+  "provenance": "synthetic; based on documented protocol and lithos-llm wire tests, not live captures",
+  "cases": [
+    {
+      "case_id": "text",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:text] Briefly say hello."
+          }
+        ],
+        "stream": false
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        }
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "text_stream",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:text_stream] Briefly say hello."
+          }
+        ],
+        "stream": true
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        },
+        "events": [
+          "message_start",
+          "content_block_start",
+          "content_block_delta:text_delta",
+          "content_block_stop",
+          "message_delta",
+          "message_stop"
+        ]
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "tool",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:tool] Use weather for Paris."
+          }
+        ],
+        "stream": false,
+        "tools": [
+          {
+            "name": "weather",
+            "description": "Read weather",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "city"
+              ]
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "tool",
+          "name": "weather"
+        }
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "tool_use",
+            "id": true,
+            "name": "weather",
+            "input": true
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        }
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "tool_stream",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:tool_stream] Use weather for Paris."
+          }
+        ],
+        "stream": true,
+        "tools": [
+          {
+            "name": "weather",
+            "description": "Read weather",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "city"
+              ]
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "tool",
+          "name": "weather"
+        }
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "tool_use",
+            "id": true,
+            "name": "weather",
+            "input": true
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        },
+        "events": [
+          "message_start",
+          "content_block_start",
+          "content_block_delta:input_json_delta",
+          "content_block_stop",
+          "message_delta",
+          "message_stop"
+        ]
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "structured",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:structured] Briefly say hello."
+          }
+        ],
+        "stream": false,
+        "output_config": {
+          "format": {
+            "type": "json_schema",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "greeting": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "greeting"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        }
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "structured_stream",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:structured_stream] Briefly say hello."
+          }
+        ],
+        "stream": true,
+        "output_config": {
+          "format": {
+            "type": "json_schema",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "greeting": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "greeting"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        },
+        "events": [
+          "message_start",
+          "content_block_start",
+          "content_block_delta:text_delta",
+          "content_block_stop",
+          "message_delta",
+          "message_stop"
+        ]
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "thinking",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 2048,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:thinking] Briefly say hello."
+          }
+        ],
+        "stream": false,
+        "thinking": {
+          "type": "enabled",
+          "budget_tokens": 1024
+        }
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": true,
+            "signature": true
+          },
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        }
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "thinking_stream",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 2048,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:thinking_stream] Briefly say hello."
+          }
+        ],
+        "stream": true,
+        "thinking": {
+          "type": "enabled",
+          "budget_tokens": 1024
+        }
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": true,
+            "signature": true
+          },
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        },
+        "events": [
+          "message_start",
+          "content_block_start",
+          "content_block_delta:thinking_delta",
+          "content_block_delta:signature_delta",
+          "content_block_stop",
+          "content_block_start",
+          "content_block_delta:text_delta",
+          "content_block_stop",
+          "message_delta",
+          "message_stop"
+        ]
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "continuation",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:continuation] Briefly say hello."
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_history",
+                "name": "weather",
+                "input": {
+                  "city": "Paris"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "toolu_history",
+                "content": "20 C. Acknowledge the result."
+              }
+            ]
+          }
+        ],
+        "stream": false,
+        "tools": [
+          {
+            "name": "weather",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "none"
+        }
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        }
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "continuation_stream",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": "[case:continuation_stream] Briefly say hello."
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_history",
+                "name": "weather",
+                "input": {
+                  "city": "Paris"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "toolu_history",
+                "content": "20 C. Acknowledge the result."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "tools": [
+          {
+            "name": "weather",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "none"
+        }
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        },
+        "events": [
+          "message_start",
+          "content_block_start",
+          "content_block_delta:text_delta",
+          "content_block_stop",
+          "message_delta",
+          "message_stop"
+        ]
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "image",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "[case:image] What color is this image? Answer briefly."
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "image/png",
+                  "data": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwBfOcIYzlCH8OITBAtxm7fN1wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYBvaWBeNInrwsAAAAASUVORK5CYII="
+                }
+              }
+            ]
+          }
+        ],
+        "stream": false
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        }
+      },
+      "extra_fields": []
+    },
+    {
+      "case_id": "image_stream",
+      "request": {
+        "model": "claude-test",
+        "max_tokens": 256,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "[case:image_stream] What color is this image? Answer briefly."
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "image/png",
+                  "data": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwBfOcIYzlCH8OITBAtxm7fN1wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYBvaWBeNInrwsAAAAASUVORK5CYII="
+                }
+              }
+            ]
+          }
+        ],
+        "stream": true
+      },
+      "canonical": {
+        "type": "message",
+        "role": "assistant",
+        "id": true,
+        "model": true,
+        "content": [
+          {
+            "type": "text",
+            "text": true
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": true,
+          "output_tokens": true
+        },
+        "events": [
+          "message_start",
+          "content_block_start",
+          "content_block_delta:text_delta",
+          "content_block_stop",
+          "message_delta",
+          "message_stop"
+        ]
+      },
+      "extra_fields": []
+    }
+  ]
+}

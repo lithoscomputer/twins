@@ -1,0 +1,286 @@
+{
+  "scenarios": [
+    {
+      "scenario_id": "text",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": false,
+        "input_contains": "[case:text]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "text_stream",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": true,
+        "input_contains": "[case:text_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "tool",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": false,
+        "input_contains": "[case:tool]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_fixture",
+            "name": "weather",
+            "input": {
+              "city": "Paris"
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "tool_stream",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": true,
+        "input_contains": "[case:tool_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_fixture",
+            "name": "weather",
+            "input": {
+              "city": "Paris"
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "structured",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": false,
+        "input_contains": "[case:structured]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"greeting\":\"Hello\"}"
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "structured_stream",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": true,
+        "input_contains": "[case:structured_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"greeting\":\"Hello\"}"
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "thinking",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": false,
+        "input_contains": "[case:thinking]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "Consider the greeting.",
+            "signature": "synthetic-signature"
+          },
+          {
+            "type": "text",
+            "text": "Hello."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "thinking_stream",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": true,
+        "input_contains": "[case:thinking_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "Consider the greeting.",
+            "signature": "synthetic-signature"
+          },
+          {
+            "type": "text",
+            "text": "Hello."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "continuation",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": false,
+        "input_contains": "[case:continuation]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "continuation_stream",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": true,
+        "input_contains": "[case:continuation_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "image",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": false,
+        "input_contains": "[case:image]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "scenario_id": "image_stream",
+      "matcher": {
+        "endpoint": "messages",
+        "stream": true,
+        "input_contains": "[case:image_stream]"
+      },
+      "script": {
+        "kind": "success",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 5
+        }
+      }
+    }
+  ]
+}

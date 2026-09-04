@@ -1,0 +1,31 @@
+#![allow(
+    clippy::result_large_err,
+    reason = "Twin HTTP handlers return full axum::Response errors directly."
+)]
+
+pub mod admin;
+pub mod anthropic;
+pub mod app;
+pub mod config;
+pub mod debug_ui;
+pub mod engine;
+pub mod logs;
+pub mod proxy;
+pub mod record;
+pub mod sse;
+pub mod state;
+pub mod transport;
+
+use anyhow::Result;
+use axum::Router;
+use config::Config;
+use state::AppState;
+
+pub fn build_app() -> Result<Router> {
+    build_app_with_config(Config::from_env()?)
+}
+
+pub fn build_app_with_config(config: Config) -> Result<Router> {
+    config.validate()?;
+    app::router(AppState::new(config)?)
+}

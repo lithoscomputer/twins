@@ -1,0 +1,12 @@
+# Use with ANTHROPIC_API_KEY=test-suite lllm --catalog <this-file> -m anthropic/claude-test Hello
+schema_version = 1
+
+[providers.anthropic]
+base_url = "http://127.0.0.1:3001"
+
+[providers.anthropic.models.claude-test]
+display_name = "Claude Test"
+api_model = "claude-test"
+limits = { context_tokens = 200000, max_output_tokens = 4096 }
+capabilities = { text = true, images = true, documents = true, tools = true, response_format = { json_object = true, json_schema = true }, reasoning = true, caching = true, tool_choice = { required = true, named = true } }
+protocol_options = { system_turns = true, reasoning_effort_levels = true }

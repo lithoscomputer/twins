@@ -22,3 +22,12 @@ depends = ["fmt", "lint", "test"]
 description = "Re-record live OpenAI captures and regenerate scenario fixtures"
 env = { TWIN_OPENAI_RECORD_FIXTURES = "1" }
 run = "cargo insta test --test live_openai_contract --accept -- --ignored"
+
+[tasks."record:anthropic"]
+description = "Capture live Anthropic contracts and regenerate semantic fixtures"
+env = { TWIN_ANTHROPIC_RECORD_FIXTURES = "1" }
+run = "cargo test --locked -p twin-anthropic --test live_anthropic_contract -- --ignored --nocapture"
+
+[tasks."replay:anthropic"]
+description = "Replay the Anthropic contract fixtures offline"
+run = "cargo test --locked -p twin-anthropic --test replay_contract"
