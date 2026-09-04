@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use twin_anthropic::engine::scenario::TranscriptEvent;
 use twin_anthropic::record::{message_from_events, parse_sse_events, request_hash};
 
-fn event(value: Value) -> TranscriptEvent {
+fn event(value: &Value) -> TranscriptEvent {
     TranscriptEvent {
         event: value["type"].as_str().map(str::to_owned),
         data: value.to_string(),
@@ -11,7 +11,7 @@ fn event(value: Value) -> TranscriptEvent {
 
 fn message_start() -> TranscriptEvent {
     event(
-        json!({"type":"message_start","message":{"type":"message","content":[],"usage":{"input_tokens":1,"output_tokens":0},"stop_reason":null}}),
+        &json!({"type":"message_start","message":{"type":"message","content":[],"usage":{"input_tokens":1,"output_tokens":0},"stop_reason":null}}),
     )
 }
 
@@ -24,29 +24,29 @@ fn malformed_event_shapes_return_errors_without_panicking() {
         json!("bad"),
         json!([]),
     ] {
-        let stop = event(json!({"type":"message_stop"}));
+        let stop = event(&json!({"type":"message_stop"}));
         for events in [
-            vec![event(invalid.clone())],
+            vec![event(&invalid)],
             vec![
-                event(json!({"type":"message_start","message":invalid})),
+                event(&json!({"type":"message_start","message":invalid})),
                 stop.clone(),
             ],
             vec![
                 message_start(),
-                event(json!({"type":"content_block_start","index":0,"content_block":invalid})),
+                event(&json!({"type":"content_block_start","index":0,"content_block":invalid})),
                 event(
-                    json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}),
+                    &json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}),
                 ),
                 stop.clone(),
             ],
             vec![
                 message_start(),
-                event(json!({"type":"message_delta","delta":invalid})),
+                event(&json!({"type":"message_delta","delta":invalid})),
                 stop.clone(),
             ],
             vec![
                 message_start(),
-                event(json!({"type":"message_delta","delta":{},"usage":invalid})),
+                event(&json!({"type":"message_delta","delta":{},"usage":invalid})),
                 stop,
             ],
         ] {
@@ -59,12 +59,12 @@ fn malformed_event_shapes_return_errors_without_panicking() {
     let events = vec![
         message_start(),
         event(
-            json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":42}}),
+            &json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":42}}),
         ),
         event(
-            json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}),
+            &json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}),
         ),
-        event(json!({"type":"message_stop"})),
+        event(&json!({"type":"message_stop"})),
     ];
     assert!(message_from_events(&events).is_err());
 }
