@@ -107,9 +107,14 @@ pub fn event_response(events: Vec<TranscriptEvent>, options: &SuccessScript) -> 
         for (index,event) in events.into_iter().enumerate() {
             if close_after_chunks.is_some_and(|limit| index >= limit) { return; }
             if index > 0 && inter_event_delay_ms > 0 { sleep(Duration::from_millis(inter_event_delay_ms)).await; }
+            // Dispatch the fault before terminal success. Consumers may stop
+            // reading as soon as they see message_stop (or its stop reason).
+            if malformed_sse && matches!(event.event.as_deref(), Some("message_delta" | "message_stop")) {
+                yield Ok::<_,std::io::Error>("event: content_block_delta\ndata: {broken\n\n".to_owned());
+                return;
+            }
             yield Ok::<_,std::io::Error>(render_event(&event));
         }
-        if malformed_sse { yield Ok("event: content_block_delta\ndata: {broken".to_owned()); }
     });
     let mut response = Response::new(body);
     response.headers_mut().insert(

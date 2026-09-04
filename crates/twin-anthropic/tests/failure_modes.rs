@@ -71,6 +71,56 @@ async fn partial_and_malformed_streams_are_observable() {
 }
 
 #[tokio::test]
+async fn malformed_sse_is_dispatched_before_terminal_success() {
+    let server = spawn(config()).await;
+    server
+        .enqueue(
+            "suite",
+            json!([scenario(
+                json!({"kind":"success","response_text":"hello 🌊","malformed_sse":true})
+            )]),
+        )
+        .await;
+    let mut stream = server
+        .post("/v1/messages", "suite", &request(true))
+        .await
+        .bytes_stream();
+    // An independent consumer: dispatch only blank-line-terminated events,
+    // and stop at terminal success just as a client is permitted to do.
+    let mut buffer = Vec::new();
+    let mut saw_text = false;
+    let mut saw_fault = false;
+    while let Some(chunk) = stream.next().await {
+        buffer.extend_from_slice(&chunk.expect("chunk"));
+        while let Some(end) = buffer.windows(2).position(|bytes| bytes == b"\n\n") {
+            let frame: Vec<_> = buffer.drain(..end + 2).collect();
+            let frame = std::str::from_utf8(&frame).expect("UTF-8 frame");
+            let data = frame
+                .lines()
+                .find_map(|line| line.strip_prefix("data: "))
+                .expect("data field");
+            let Ok(value) = serde_json::from_str::<Value>(data) else {
+                saw_fault = true;
+                break;
+            };
+            assert!(
+                value["type"] != "message_delta" && value["type"] != "message_stop",
+                "success arrived before the fault"
+            );
+            saw_text |= value["delta"]["text"] == "hello 🌊";
+        }
+        if saw_fault {
+            break;
+        }
+    }
+    assert!(saw_text, "partial text should reach the client");
+    assert!(
+        saw_fault,
+        "client must receive a dispatched malformed event"
+    );
+}
+
+#[tokio::test]
 async fn stream_event_delays_are_observable() {
     let server = spawn(config()).await;
     server
