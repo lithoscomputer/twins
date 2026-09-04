@@ -92,12 +92,19 @@ pub fn message_from_events(events: &[TranscriptEvent]) -> Result<Value> {
     let mut stopped = false;
     for event in events {
         let data: Value = serde_json::from_str(&event.data).context("invalid event JSON")?;
+        anyhow::ensure!(data.is_object(), "event must be an object");
         match data["type"].as_str().or(event.event.as_deref()) {
             Some("message_start") => {
-                message = Some(data.get("message").cloned().context("missing message")?);
+                let initial = data.get("message").context("missing message")?;
+                anyhow::ensure!(initial.is_object(), "message must be an object");
+                message = Some(initial.clone());
             }
             Some("content_block_start") => {
                 let index = data["index"].as_u64().context("missing block index")?;
+                anyhow::ensure!(
+                    data["content_block"].is_object(),
+                    "content block must be an object"
+                );
                 blocks.insert(index, data["content_block"].clone());
             }
             Some("content_block_delta") => {
@@ -106,22 +113,23 @@ pub fn message_from_events(events: &[TranscriptEvent]) -> Result<Value> {
                     .get_mut(&index)
                     .context("delta without block start")?;
                 let delta = &data["delta"];
+                anyhow::ensure!(delta.is_object(), "block delta must be an object");
                 match delta["type"].as_str() {
                     Some("text_delta") => append(
                         block,
                         "text",
                         delta["text"].as_str().context("missing text")?,
-                    ),
+                    )?,
                     Some("thinking_delta") => append(
                         block,
                         "thinking",
                         delta["thinking"].as_str().context("missing thinking")?,
-                    ),
+                    )?,
                     Some("signature_delta") => append(
                         block,
                         "signature",
                         delta["signature"].as_str().context("missing signature")?,
-                    ),
+                    )?,
                     Some("input_json_delta") => arguments.entry(index).or_default().push_str(
                         delta["partial_json"]
                             .as_str()
@@ -143,12 +151,14 @@ pub fn message_from_events(events: &[TranscriptEvent]) -> Result<Value> {
                 let target = message
                     .as_mut()
                     .context("message_delta before message_start")?;
-                if let Some(delta) = data["delta"].as_object() {
-                    for (key, value) in delta {
-                        target[key] = value.clone();
-                    }
+                let delta = data["delta"]
+                    .as_object()
+                    .context("message delta must be an object")?;
+                for (key, value) in delta {
+                    target[key] = value.clone();
                 }
-                if let Some(usage) = data["usage"].as_object() {
+                if let Some(usage) = data.get("usage") {
+                    let usage = usage.as_object().context("usage must be an object")?;
                     if !target["usage"].is_object() {
                         target["usage"] = json!({});
                     }
@@ -174,7 +184,11 @@ pub fn message_from_events(events: &[TranscriptEvent]) -> Result<Value> {
     Ok(message)
 }
 
-fn append(block: &mut Value, field: &str, delta: &str) {
-    let value = block.get(field).and_then(Value::as_str).unwrap_or_default();
+fn append(block: &mut Value, field: &str, delta: &str) -> Result<()> {
+    let value = block
+        .get(field)
+        .map_or(Some(""), Value::as_str)
+        .context("delta target must be a string")?;
     block[field] = Value::String(format!("{value}{delta}"));
+    Ok(())
 }
