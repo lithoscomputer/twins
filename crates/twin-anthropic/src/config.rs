@@ -1,27 +1,17 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
-
-const BIND_ADDR_ENV: &str = "TWIN_ANTHROPIC_BIND_ADDR";
-const REQUIRE_AUTH_ENV: &str = "TWIN_ANTHROPIC_REQUIRE_AUTH";
-const ENABLE_ADMIN_ENV: &str = "TWIN_ANTHROPIC_ENABLE_ADMIN";
-const REQUEST_LOG_PATH_ENV: &str = "TWIN_ANTHROPIC_REQUEST_LOG_PATH";
-const SCENARIOS_PATH_ENV: &str = "TWIN_ANTHROPIC_SCENARIOS_PATH";
-const ALLOW_UNMATCHED_ENV: &str = "TWIN_ANTHROPIC_ALLOW_UNMATCHED";
-const MODE_ENV: &str = "TWIN_ANTHROPIC_MODE";
-const UPSTREAM_URL_ENV: &str = "TWIN_ANTHROPIC_UPSTREAM_URL";
-const UPSTREAM_MESSAGES_PATH_ENV: &str = "TWIN_ANTHROPIC_UPSTREAM_MESSAGES_PATH";
-const UPSTREAM_API_KEY_ENV: &str = "TWIN_ANTHROPIC_UPSTREAM_API_KEY";
-const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
-const RECORDING_PATH_ENV: &str = "TWIN_ANTHROPIC_RECORDING_PATH";
-const RECORD_FORMAT_ENV: &str = "TWIN_ANTHROPIC_RECORD_FORMAT";
-const RECORDING_APPEND_ENV: &str = "TWIN_ANTHROPIC_RECORDING_APPEND";
-
-const DEFAULT_UPSTREAM_URL: &str = "https://api.anthropic.com";
-
-use twin_core::config::{lookup_api_key, parse_bool_env, validate_proxy_record};
+use anyhow::Result;
 pub use twin_core::config::{Mode, RecordFormat};
+use twin_core::config::{ProviderConfig, Settings};
+
+const PROVIDER: ProviderConfig = ProviderConfig {
+    env_prefix: "TWIN_ANTHROPIC",
+    api_key_env: "ANTHROPIC_API_KEY",
+    upstream_path_env: "TWIN_ANTHROPIC_UPSTREAM_MESSAGES_PATH",
+    default_port: 3001,
+    default_upstream_url: "https://api.anthropic.com",
+};
 
 #[derive(Clone, Debug)]
 #[allow(
@@ -47,125 +37,45 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        Self::from_lookup(&process_env_var)
+        Self::from_lookup(&|name| std::env::var(name).ok())
     }
 
     pub fn from_lookup(lookup: &dyn Fn(&str) -> Option<String>) -> Result<Self> {
-        let bind_addr = lookup(BIND_ADDR_ENV)
-            .map(|value| value.parse().context("invalid TWIN_ANTHROPIC_BIND_ADDR"))
-            .transpose()?
-            .unwrap_or_else(|| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3001));
-
-        let require_auth = lookup(REQUIRE_AUTH_ENV)
-            .map(|value| parse_bool_env(&value, REQUIRE_AUTH_ENV))
-            .transpose()?
-            .unwrap_or(true);
-
-        let enable_admin = lookup(ENABLE_ADMIN_ENV)
-            .map(|value| parse_bool_env(&value, ENABLE_ADMIN_ENV))
-            .transpose()?
-            .unwrap_or(true);
-
-        let request_log_path = lookup(REQUEST_LOG_PATH_ENV)
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from);
-        let scenarios_path = lookup(SCENARIOS_PATH_ENV)
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from);
-        let allow_unmatched = lookup(ALLOW_UNMATCHED_ENV)
-            .map(|value| parse_bool_env(&value, ALLOW_UNMATCHED_ENV))
-            .transpose()?
-            .unwrap_or(false);
-
-        let mode = match lookup(MODE_ENV).as_deref() {
-            None | Some("twin") => Mode::Twin,
-            Some("proxy-record") => Mode::ProxyRecord,
-            Some(other) => {
-                anyhow::bail!("{MODE_ENV} must be twin or proxy-record, got {other}")
-            }
-        };
-        let upstream_url = lookup(UPSTREAM_URL_ENV)
-            .filter(|value| !value.is_empty())
-            .map_or_else(
-                || DEFAULT_UPSTREAM_URL.to_owned(),
-                |value| value.trim_end_matches('/').to_owned(),
-            );
-        let upstream_messages_path =
-            lookup(UPSTREAM_MESSAGES_PATH_ENV).filter(|value| !value.is_empty());
-        let upstream_api_key = lookup_api_key(lookup, UPSTREAM_API_KEY_ENV, ANTHROPIC_API_KEY_ENV);
-        let recording_path = lookup(RECORDING_PATH_ENV)
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from);
-        let record_format = match lookup(RECORD_FORMAT_ENV).as_deref() {
-            None | Some("semantic") => RecordFormat::Semantic,
-            Some("transcript") => RecordFormat::Transcript,
-            Some(other) => {
-                anyhow::bail!("{RECORD_FORMAT_ENV} must be semantic or transcript, got {other}")
-            }
-        };
-        let recording_append = lookup(RECORDING_APPEND_ENV)
-            .map(|value| parse_bool_env(&value, RECORDING_APPEND_ENV))
-            .transpose()?
-            .unwrap_or(false);
-
-        let config = Self {
-            bind_addr,
-            require_auth,
-            enable_admin,
-            request_log_path,
-            scenarios_path,
-            allow_unmatched,
-            mode,
-            upstream_url,
-            upstream_messages_path,
-            upstream_api_key,
-            recording_path,
-            record_format,
-            recording_append,
-        };
-        config.validate()?;
-        Ok(config)
+        PROVIDER.load(lookup).map(Self::from)
     }
 
     pub fn validate(&self) -> Result<()> {
-        validate_proxy_record(
+        PROVIDER.validate(
             self.mode,
             self.upstream_api_key.as_deref(),
             self.recording_path.as_deref(),
-            UPSTREAM_API_KEY_ENV,
-            ANTHROPIC_API_KEY_ENV,
-            RECORDING_PATH_ENV,
-        )?;
-        if let Some(path) = &self.upstream_messages_path {
-            anyhow::ensure!(
-                path.starts_with('/'),
-                "{UPSTREAM_MESSAGES_PATH_ENV} must start with '/', got {path}"
-            );
-        }
-        Ok(())
+            self.upstream_messages_path.as_deref(),
+        )
     }
 }
 
-fn process_env_var(name: &str) -> Option<String> {
-    std::env::var(name).ok()
+impl From<Settings> for Config {
+    fn from(settings: Settings) -> Self {
+        Self {
+            bind_addr: settings.bind_addr,
+            require_auth: settings.require_auth,
+            enable_admin: settings.enable_admin,
+            request_log_path: settings.request_log_path,
+            scenarios_path: settings.scenarios_path,
+            allow_unmatched: settings.allow_unmatched,
+            mode: settings.mode,
+            upstream_url: settings.upstream_url,
+            upstream_messages_path: settings.upstream_path,
+            upstream_api_key: settings.upstream_api_key,
+            recording_path: settings.recording_path,
+            record_format: settings.record_format,
+            recording_append: settings.recording_append,
+        }
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self::from_env().unwrap_or(Self {
-            bind_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3001),
-            require_auth: true,
-            enable_admin: true,
-            request_log_path: None,
-            scenarios_path: None,
-            allow_unmatched: false,
-            mode: Mode::Twin,
-            upstream_url: DEFAULT_UPSTREAM_URL.to_owned(),
-            upstream_messages_path: None,
-            upstream_api_key: None,
-            recording_path: None,
-            record_format: RecordFormat::Semantic,
-            recording_append: false,
-        })
+        Self::from_env().unwrap_or_else(|_| PROVIDER.defaults().into())
     }
 }

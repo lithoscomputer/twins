@@ -8,6 +8,8 @@ fn config_loads_from_environment() {
         "TWIN_OPENAI_REQUEST_LOG_PATH" => Some("tmp/requests.jsonl".to_string()),
         "TWIN_OPENAI_SCENARIOS_PATH" => Some("fixtures/scenarios.json".to_string()),
         "TWIN_OPENAI_ALLOW_UNMATCHED" => Some("true".to_string()),
+        "TWIN_OPENAI_UPSTREAM_URL" => Some("https://gateway.example/openai/".to_owned()),
+        "TWIN_OPENAI_UPSTREAM_RESPONSES_PATH" => Some("/responses".to_owned()),
         _ => None,
     })
     .expect("config should load");
@@ -24,6 +26,19 @@ fn config_loads_from_environment() {
         Some(std::path::Path::new("fixtures/scenarios.json"))
     );
     assert!(config.allow_unmatched);
+    assert_eq!(config.upstream_url, "https://gateway.example/openai");
+    assert_eq!(
+        config.upstream_responses_path.as_deref(),
+        Some("/responses")
+    );
+}
+
+#[test]
+fn absent_environment_preserves_openai_defaults() {
+    let config = Config::from_lookup(&|_| None).expect("defaults");
+    assert_eq!(config.bind_addr.to_string(), "127.0.0.1:3000");
+    assert_eq!(config.upstream_url, "https://api.openai.com");
+    assert!(config.upstream_responses_path.is_none());
 }
 
 #[test]

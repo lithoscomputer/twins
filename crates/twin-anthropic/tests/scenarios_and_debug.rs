@@ -259,6 +259,8 @@ fn configuration_and_startup_errors_are_explicit() {
         "TWIN_ANTHROPIC_UPSTREAM_API_KEY" => Some(String::new()),
         "ANTHROPIC_API_KEY" => Some("upstream-key".to_owned()),
         "TWIN_ANTHROPIC_RECORDING_PATH" => Some("recording.json".to_owned()),
+        "TWIN_ANTHROPIC_UPSTREAM_URL" => Some("https://gateway.example/anthropic/".to_owned()),
+        "TWIN_ANTHROPIC_UPSTREAM_MESSAGES_PATH" => Some("/messages".to_owned()),
         _ => None,
     })
     .expect("config");
@@ -266,6 +268,12 @@ fn configuration_and_startup_errors_are_explicit() {
     assert_eq!(cfg.record_format, RecordFormat::Transcript);
     assert!(cfg.recording_append);
     assert_eq!(cfg.upstream_api_key.as_deref(), Some("upstream-key"));
+    assert_eq!(cfg.upstream_url, "https://gateway.example/anthropic");
+    assert_eq!(cfg.upstream_messages_path.as_deref(), Some("/messages"));
+    let defaults = Config::from_lookup(&|_| None).expect("defaults");
+    assert_eq!(defaults.bind_addr.to_string(), "127.0.0.1:3001");
+    assert_eq!(defaults.upstream_url, "https://api.anthropic.com");
+    assert!(defaults.upstream_messages_path.is_none());
     assert_eq!(config().bind_addr.port(), 3001);
     for (name, value) in [
         ("TWIN_ANTHROPIC_REQUIRE_AUTH", "yes"),
