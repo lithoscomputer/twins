@@ -4,18 +4,17 @@ use crate::config::{Config, RecordFormat};
 use crate::engine::scenario::Scenario;
 use crate::record::{derive_script, message_from_events, parse_sse_events, request_hash};
 use anyhow::{Context, Result};
-use async_stream::stream;
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use futures_util::StreamExt;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use twin_core::proxy::forward_stream;
 use twin_core::record::RecordingStore;
 
 #[derive(Clone)]
@@ -129,18 +128,18 @@ async fn forward(
         .map_or(requested_stream, |s| s.contains("text/event-stream"));
     if is_stream {
         let response_headers_copy = response_headers.clone();
-        let body = Body::from_stream(stream! {
-            let mut buffer = Vec::new();
-            let mut upstream = upstream.bytes_stream();
-            let mut failed = false;
-            while let Some(chunk) = upstream.next().await {
-                match chunk {
-                    Ok(chunk) => { buffer.extend_from_slice(&chunk); yield Ok::<_,std::io::Error>(chunk); }
-                    Err(error) => { failed = true; yield Err(std::io::Error::other(error)); break; }
-                }
-            }
-            if record && !failed && status == StatusCode::OK {
-                state.recorder.record(namespace.as_deref(),hash.as_deref(),requested_stream,true,state.config.record_format,status,&response_headers_copy,&buffer);
+        let body = forward_stream(upstream.bytes_stream(), move |buffer| {
+            if record && status == StatusCode::OK {
+                state.recorder.record(
+                    namespace.as_deref(),
+                    hash.as_deref(),
+                    requested_stream,
+                    true,
+                    state.config.record_format,
+                    status,
+                    &response_headers_copy,
+                    buffer,
+                );
             }
         });
         passthrough(status, response_headers, body)

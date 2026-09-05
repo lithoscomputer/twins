@@ -3,6 +3,7 @@
 pub mod config;
 pub mod debug_ui;
 pub mod logs;
+pub mod proxy;
 pub mod record;
 pub mod scenario;
 pub mod sse;

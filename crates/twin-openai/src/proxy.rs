@@ -15,14 +15,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use async_stream::stream;
 use axum::body::{Body, Bytes};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{middleware, Json, Router};
-use futures_util::StreamExt;
 use serde_json::{json, Map, Value};
 
 use crate::config::{Config, RecordFormat};
@@ -32,6 +30,7 @@ use crate::record::{
     derive_script, parse_sse_events, request_hash, ExchangeShape, RecordedEndpoint,
     RecordedExchange,
 };
+use twin_core::proxy::forward_stream;
 use twin_core::record::RecordingStore;
 
 #[derive(Clone)]
@@ -288,29 +287,10 @@ fn stream_and_record(
     let recorder = state.recorder.clone();
     let record_format = state.record_format;
     let recorded_content_type = content_type.clone();
-    let body = Body::from_stream(stream! {
-        let mut buffer: Vec<u8> = Vec::new();
-        let mut upstream = upstream_response.bytes_stream();
-        let mut failed = false;
-
-        while let Some(chunk) = upstream.next().await {
-            match chunk {
-                Ok(chunk) => {
-                    buffer.extend_from_slice(&chunk);
-                    yield Ok::<_, std::io::Error>(chunk);
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "upstream stream failed mid-response");
-                    failed = true;
-                    yield Err(std::io::Error::other(error));
-                    break;
-                }
-            }
-        }
-
-        if !failed && status == StatusCode::OK {
+    let body = forward_stream(upstream_response.bytes_stream(), move |buffer| {
+        if status == StatusCode::OK {
             if let Some(shape) = shape {
-                match parse_sse_events(&buffer) {
+                match parse_sse_events(buffer) {
                     Ok(events) => {
                         let exchange = RecordedExchange::Stream(events);
                         match record_format {
