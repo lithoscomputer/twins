@@ -92,7 +92,7 @@ pub fn execute_chat_request(
         model: request.model.clone(),
         stream: request.stream,
         metadata: serde_json::Map::new(),
-        input_text: request.extract_user_text(),
+        input_text: request.extract_scenario_text(),
         instructions_text: request.extract_instruction_text(),
         request_hash,
     };

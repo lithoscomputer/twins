@@ -3,6 +3,63 @@ mod common;
 use serde_json::json;
 
 #[tokio::test]
+async fn chat_scenario_matches_tool_output_on_continuation() {
+    let server = common::spawn_server().await.expect("server should start");
+    server
+        .enqueue_scenarios(json!({
+            "scenarios": [{
+                "matcher": { "endpoint": "chat.completions", "input_contains": "63973" },
+                "sticky": true,
+                "script": { "kind": "success", "response_text": "The calculator returned 63,973." }
+            }]
+        }))
+        .await;
+
+    let first = server
+        .post_chat(json!({
+            "model": "gpt-test",
+            "messages": [
+                { "role": "system", "content": "63973" },
+                { "role": "user", "content": "Calculate 1729 * 37" }
+            ]
+        }))
+        .await
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_ne!(
+        first["choices"][0]["message"]["content"],
+        "The calculator returned 63,973."
+    );
+
+    let messages = json!([
+        { "role": "user", "content": "Calculate 1729 * 37" },
+        { "role": "assistant", "tool_calls": [{ "id": "call_calc", "type": "function", "function": { "name": "calculator", "arguments": "{\"expression\":\"1729 * 37\"}" } }] },
+        { "role": "tool", "tool_call_id": "call_calc", "content": "63973" }
+    ]);
+    let continuation = server
+        .post_chat(json!({
+            "model": "gpt-test", "messages": messages
+        }))
+        .await
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_eq!(
+        continuation["choices"][0]["message"]["content"],
+        "The calculator returned 63,973."
+    );
+
+    let (status, chunks) = server
+        .post_chat_stream(json!({
+            "model": "gpt-test", "messages": messages, "stream": true
+        }))
+        .await;
+    assert_eq!(status, 200);
+    assert!(chunks.join("").contains("The calculator returned 63,973."));
+}
+
+#[tokio::test]
 async fn chat_completions_non_stream_uses_same_canonical_plan() {
     let server = common::spawn_server().await.expect("server should start");
 

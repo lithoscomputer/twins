@@ -628,10 +628,18 @@ impl ChatCompletionsRequest {
     }
 
     pub fn extract_user_text(&self) -> String {
+        self.extract_text_for_roles(&["user"])
+    }
+
+    pub fn extract_scenario_text(&self) -> String {
+        self.extract_text_for_roles(&["user", "tool"])
+    }
+
+    fn extract_text_for_roles(&self, roles: &[&str]) -> String {
         let pieces: Vec<String> = self
             .messages
             .iter()
-            .filter(|message| message.role == "user")
+            .filter(|message| roles.contains(&message.role.as_str()))
             .flat_map(ChatMessage::extract_texts)
             .collect();
         let text = normalize_whitespace(&pieces.join(" "));
