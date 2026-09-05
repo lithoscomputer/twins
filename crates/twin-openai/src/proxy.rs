@@ -11,10 +11,8 @@
 //! Failed upstream responses and underivable exchanges are passed through
 //! but not recorded. Admin and debug routes are not mounted in this mode.
 
-use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use async_stream::stream;
@@ -28,11 +26,13 @@ use futures_util::StreamExt;
 use serde_json::{json, Map, Value};
 
 use crate::config::{Config, RecordFormat};
+use crate::engine::scenario::Scenario;
 use crate::openai::auth;
 use crate::record::{
     derive_script, parse_sse_events, request_hash, ExchangeShape, RecordedEndpoint,
     RecordedExchange,
 };
+use twin_core::record::RecordingStore;
 
 #[derive(Clone)]
 struct ProxyState {
@@ -370,48 +370,14 @@ fn upstream_error_response(error: &reqwest::Error) -> Response {
 }
 
 struct Recorder {
-    path: PathBuf,
-    state: Mutex<RecorderState>,
-}
-
-#[derive(Default)]
-struct RecorderState {
-    scenarios: Vec<Value>,
-    counters: HashMap<String, u64>,
+    store: RecordingStore,
 }
 
 impl Recorder {
-    /// Creates the recorder. By default the recording file is truncated, so
-    /// a server run produces a complete, self-consistent recording; with
-    /// `append` an existing file's scenarios are kept and new exchanges
-    /// continue each namespace's numbering after them.
     fn create(path: PathBuf, append: bool) -> Result<Self> {
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("failed to create recording directory {}", parent.display())
-            })?;
-        }
-
-        let state = if append && path.exists() {
-            load_recorder_state(&path)?
-        } else {
-            RecorderState::default()
-        };
-
-        let recorder = Self {
-            path,
-            state: Mutex::new(state),
-        };
-        {
-            let state = recorder.state.lock().expect("recorder lock");
-            recorder
-                .flush(&state)
-                .context("failed to initialize recording file")?;
-        }
-        Ok(recorder)
+        Ok(Self {
+            store: RecordingStore::create::<Scenario>(path, append)?,
+        })
     }
 
     fn record(&self, bearer: Option<&str>, shape: ExchangeShape, exchange: &RecordedExchange) {
@@ -426,7 +392,8 @@ impl Recorder {
             "endpoint": shape.endpoint.scenario_endpoint(),
             "stream": shape.stream,
         });
-        self.push_scenario(bearer, matcher, Value::Object(script));
+        self.store
+            .push_scenario(bearer, matcher, Value::Object(script));
     }
 
     /// Records a verbatim transcript scenario: the exchange goes into the
@@ -475,92 +442,7 @@ impl Recorder {
             }
         }
 
-        self.push_scenario(bearer, Value::Object(matcher), Value::Object(script));
+        self.store
+            .push_scenario(bearer, Value::Object(matcher), Value::Object(script));
     }
-
-    fn push_scenario(&self, bearer: Option<&str>, matcher: Value, script: Value) {
-        let mut state = self.state.lock().expect("recorder lock");
-        let namespace_label = bearer.unwrap_or("global");
-        let sequence = {
-            let counter = state
-                .counters
-                .entry(namespace_label.to_owned())
-                .or_insert(0);
-            *counter += 1;
-            *counter
-        };
-
-        let mut scenario = Map::new();
-        scenario.insert(
-            "scenario_id".to_owned(),
-            Value::String(format!("{namespace_label}/{sequence:04}")),
-        );
-        if let Some(bearer) = bearer {
-            scenario.insert("namespace".to_owned(), Value::String(bearer.to_owned()));
-        }
-        scenario.insert("matcher".to_owned(), matcher);
-        scenario.insert("script".to_owned(), script);
-        state.scenarios.push(Value::Object(scenario));
-        tracing::info!(
-            scenario_id = format!("{namespace_label}/{sequence:04}"),
-            "recorded proxy exchange"
-        );
-
-        if let Err(error) = self.flush(&state) {
-            tracing::error!(%error, "failed to write proxy recording");
-        }
-    }
-
-    fn flush(&self, state: &RecorderState) -> Result<()> {
-        let mut contents = serde_json::to_string_pretty(&json!({ "scenarios": state.scenarios }))
-            .context("failed to serialize recording")?;
-        contents.push('\n');
-        let tmp = self.path.with_extension("tmp");
-        fs::write(&tmp, contents)
-            .with_context(|| format!("failed to write recording to {}", tmp.display()))?;
-        fs::rename(&tmp, &self.path)
-            .with_context(|| format!("failed to move recording into {}", self.path.display()))?;
-        Ok(())
-    }
-}
-
-/// Loads an existing recording so an append run continues it: the scenarios
-/// are kept, and each namespace's counter resumes after the highest
-/// recorded sequence number.
-fn load_recorder_state(path: &Path) -> Result<RecorderState> {
-    let contents = fs::read_to_string(path)
-        .with_context(|| format!("failed to read existing recording {}", path.display()))?;
-    let document: Value = serde_json::from_str(&contents)
-        .with_context(|| format!("existing recording {} is not valid JSON", path.display()))?;
-    let scenarios = document
-        .get("scenarios")
-        .and_then(Value::as_array)
-        .cloned()
-        .with_context(|| {
-            format!(
-                "existing recording {} has no scenarios array",
-                path.display()
-            )
-        })?;
-
-    let mut counters: HashMap<String, u64> = HashMap::new();
-    for scenario in &scenarios {
-        let Some((label, sequence)) = scenario
-            .get("scenario_id")
-            .and_then(Value::as_str)
-            .and_then(|id| id.rsplit_once('/'))
-        else {
-            continue;
-        };
-        let Ok(sequence) = sequence.parse::<u64>() else {
-            continue;
-        };
-        let counter = counters.entry(label.to_owned()).or_insert(0);
-        *counter = (*counter).max(sequence);
-    }
-
-    Ok(RecorderState {
-        scenarios,
-        counters,
-    })
 }

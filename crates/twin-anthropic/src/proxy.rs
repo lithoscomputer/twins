@@ -1,7 +1,7 @@
 //! Forward native Anthropic traffic and record successful Messages exchanges.
 use crate::anthropic::{apply_headers, auth, models::AnthropicError};
 use crate::config::{Config, RecordFormat};
-use crate::engine::scenario::{validate_scenario_ids, ScenarioEnvelope};
+use crate::engine::scenario::Scenario;
 use crate::record::{derive_script, message_from_events, parse_sse_events, request_hash};
 use anyhow::{Context, Result};
 use async_stream::stream;
@@ -13,10 +13,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use twin_core::record::RecordingStore;
 
 #[derive(Clone)]
 struct ProxyState {
@@ -204,30 +204,14 @@ fn upstream_error(error: &reqwest::Error) -> Response {
 }
 
 struct Recorder {
-    path: PathBuf,
-    state: Mutex<RecorderState>,
+    store: RecordingStore,
 }
-#[derive(Default)]
-struct RecorderState {
-    scenarios: Vec<Value>,
-    counters: HashMap<String, u64>,
-}
+
 impl Recorder {
     fn create(path: PathBuf, append: bool) -> Result<Self> {
-        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            fs::create_dir_all(parent)?;
-        }
-        let state = if append && path.exists() {
-            load_recorder_state(&path)?
-        } else {
-            RecorderState::default()
-        };
-        let recorder = Self {
-            path,
-            state: Mutex::new(state),
-        };
-        recorder.flush(&recorder.state.lock().expect("recorder lock"))?;
-        Ok(recorder)
+        Ok(Self {
+            store: RecordingStore::create::<Scenario>(path, append)?,
+        })
     }
 
     fn record(
@@ -280,53 +264,6 @@ impl Recorder {
         if format == RecordFormat::Transcript {
             matcher["request_hash"] = json!(hash);
         }
-        let mut state = self.state.lock().expect("recorder lock");
-        let label = namespace.unwrap_or("global");
-        let counter = state.counters.entry(label.to_owned()).or_default();
-        *counter += 1;
-        let id = format!("{label}/{counter:04}");
-        let mut scenario = json!({"scenario_id":id,"matcher":matcher,"script":script});
-        if let Some(namespace) = namespace {
-            scenario["namespace"] = json!(namespace);
-        }
-        state.scenarios.push(scenario);
-        if let Err(error) = self.flush(&state) {
-            tracing::error!(%error,"failed to write recording");
-        }
+        self.store.push_scenario(namespace, matcher, script);
     }
-
-    fn flush(&self, state: &RecorderState) -> Result<()> {
-        let mut data = serde_json::to_vec_pretty(&json!({"scenarios":state.scenarios}))?;
-        data.push(b'\n');
-        let tmp = self.path.with_extension("tmp");
-        fs::write(&tmp, data).with_context(|| format!("failed to write {}", tmp.display()))?;
-        fs::rename(&tmp, &self.path)
-            .with_context(|| format!("failed to replace {}", self.path.display()))
-    }
-}
-fn load_recorder_state(path: &Path) -> Result<RecorderState> {
-    let bytes = fs::read(path)?;
-    let envelope: ScenarioEnvelope = serde_json::from_slice(&bytes)?;
-    validate_scenario_ids(&envelope.scenarios).map_err(anyhow::Error::msg)?;
-    let document: Value = serde_json::from_slice(&bytes)?;
-    let scenarios = document["scenarios"]
-        .as_array()
-        .context("missing scenarios")?
-        .clone();
-    let mut counters: HashMap<String, u64> = HashMap::new();
-    for scenario in &scenarios {
-        if let Some((label, n)) = scenario["scenario_id"]
-            .as_str()
-            .and_then(|s| s.rsplit_once('/'))
-        {
-            if let Ok(n) = n.parse::<u64>() {
-                let counter = counters.entry(label.to_owned()).or_default();
-                *counter = (*counter).max(n);
-            }
-        }
-    }
-    Ok(RecorderState {
-        scenarios,
-        counters,
-    })
 }

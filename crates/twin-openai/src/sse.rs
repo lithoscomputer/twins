@@ -6,7 +6,7 @@ use tokio::time::{sleep, Duration};
 
 use crate::engine::failures::{TranscriptBody, TranscriptOutcome, TransportOptions};
 use crate::engine::plan::ResponsePlan;
-use crate::engine::scenario::TranscriptEvent;
+use twin_core::sse::render_event as render_transcript_event;
 
 pub fn responses_sse_response(plan: &ResponsePlan, transport: TransportOptions) -> Response<Body> {
     let mut events = Vec::new();
@@ -432,22 +432,4 @@ fn build_response(status: StatusCode, content_type: &str, body: Body) -> Respons
         response.headers_mut().insert(header::CONTENT_TYPE, value);
     }
     response
-}
-
-/// One SSE event as its wire text. Multi-line data becomes one `data:` line
-/// per line, which is how the SSE encoding carries embedded newlines.
-fn render_transcript_event(event: &TranscriptEvent) -> String {
-    let mut rendered = String::new();
-    if let Some(name) = &event.event {
-        rendered.push_str("event: ");
-        rendered.push_str(name);
-        rendered.push('\n');
-    }
-    for line in event.data.split('\n') {
-        rendered.push_str("data: ");
-        rendered.push_str(line);
-        rendered.push('\n');
-    }
-    rendered.push('\n');
-    rendered
 }

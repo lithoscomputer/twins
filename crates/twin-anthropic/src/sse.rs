@@ -83,21 +83,7 @@ fn push(events: &mut Vec<TranscriptEvent>, name: &str, mut data: Value) {
     });
 }
 
-pub fn render_event(event: &TranscriptEvent) -> String {
-    let mut text = String::new();
-    if let Some(name) = &event.event {
-        text.push_str("event: ");
-        text.push_str(name);
-        text.push('\n');
-    }
-    for line in event.data.split('\n') {
-        text.push_str("data: ");
-        text.push_str(line);
-        text.push('\n');
-    }
-    text.push('\n');
-    text
-}
+pub use twin_core::sse::render_event;
 
 pub fn event_response(events: Vec<TranscriptEvent>, options: &SuccessScript) -> Response<Body> {
     let close_after_chunks = options.close_after_chunks;

@@ -7,6 +7,9 @@
 //! `fixtures/scenarios.json`, and proxy-record mode uses it to record an
 //! application's own traffic.
 
+pub use twin_core::record::request_hash;
+pub use twin_core::sse::parse_sse_events;
+
 use anyhow::{Context, Result};
 use serde_json::{json, Map, Value};
 
@@ -65,11 +68,7 @@ impl ExchangeShape {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct RecordedSseEvent {
-    pub event: Option<String>,
-    pub data: String,
-}
+pub use twin_core::sse::TranscriptEvent as RecordedSseEvent;
 
 /// A captured response, ready for derivation.
 pub enum RecordedExchange {
@@ -129,47 +128,6 @@ pub fn derive_script(
     }
 
     Ok(script)
-}
-
-/// Parse SSE events with LF, CRLF, or CR line endings and optional spaces
-/// after field colons. Ignores comments and unrecorded fields such as `id`.
-/// Also tolerates a missing trailing blank line in captured responses.
-pub fn parse_sse_events(body: &[u8]) -> Result<Vec<RecordedSseEvent>> {
-    let text = std::str::from_utf8(body).context("sse body was not valid utf-8")?;
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let text = text.replace("\r\n", "\n").replace('\r', "\n");
-    let mut events = Vec::new();
-    let mut event = None;
-    let mut data_lines = Vec::new();
-
-    // The final empty line also flushes a capture without a terminating
-    // blank line, preserving the recorder's existing EOF tolerance.
-    for line in text.split('\n').chain(std::iter::once("")) {
-        if line.is_empty() {
-            if !data_lines.is_empty() {
-                events.push(RecordedSseEvent {
-                    event: event.take(),
-                    data: data_lines.join("\n"),
-                });
-            }
-            event = None;
-            data_lines.clear();
-            continue;
-        }
-        if line.starts_with(':') {
-            continue;
-        }
-
-        let (field, value) = line.split_once(':').unwrap_or((line, ""));
-        let value = value.strip_prefix(' ').unwrap_or(value);
-        match field {
-            "event" => event = Some(value.to_owned()),
-            "data" => data_lines.push(value),
-            _ => {}
-        }
-    }
-
-    Ok(events)
 }
 
 #[derive(Default)]
@@ -451,25 +409,4 @@ fn observe_usage(usage: Option<&Value>, input_key: &str, output_key: &str) -> Op
 /// as a JSON string.
 fn parse_arguments(arguments: &str) -> Value {
     serde_json::from_str(arguments).unwrap_or_else(|_| Value::String(arguments.to_owned()))
-}
-
-/// Hash of a request body for transcript matching.
-///
-/// Object keys are sorted recursively before hashing, so whitespace and key
-/// order do not affect matching. Array order is preserved. The hash is FNV-1a
-/// over that canonical text — a matcher key, not a security boundary.
-/// Recordings made with the earlier, order-dependent hash must be re-recorded
-/// if their request keys were not already sorted.
-#[must_use]
-pub fn request_hash(body: &[u8]) -> Option<String> {
-    let mut value: Value = serde_json::from_slice(body).ok()?;
-    value.sort_all_objects();
-    let canonical = value.to_string();
-
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in canonical.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    Some(format!("{hash:016x}"))
 }

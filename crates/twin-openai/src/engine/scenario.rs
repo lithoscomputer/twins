@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashSet};
+use serde_json::Value;
+use std::collections::BTreeMap;
 
 use super::failures::{
     ErrorOutcome, ExecutionOutcome, SuccessOutcome, TranscriptBody, TranscriptOutcome,
@@ -11,10 +11,9 @@ use super::plan::{ResponsePlan, TokenUsage, ToolCallPlan};
 use crate::openai::models::{ChatCompletionsRequest, ResponsesRequest};
 use crate::transport::{RawChunk, RawOutcome};
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct ScenarioEnvelope {
-    pub scenarios: Vec<Scenario>,
-}
+use twin_core::scenario::{validate_scenarios, QueuedScenario};
+pub use twin_core::scenario::{RequestContext, ScenarioMatcher};
+pub type ScenarioEnvelope = twin_core::scenario::ScenarioEnvelope<Scenario>;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Scenario {
@@ -39,24 +38,6 @@ pub struct Scenario {
 
 fn default_repeat() -> u32 {
     1
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct ScenarioMatcher {
-    pub endpoint: String,
-    pub model: Option<String>,
-    pub stream: Option<bool>,
-    #[serde(default)]
-    pub metadata: Map<String, Value>,
-    pub input_contains: Option<String>,
-    /// Substring of the request's instructions: the `instructions` field
-    /// plus any `system` or `developer` messages. Lets a test prove that a
-    /// system prompt reached the model.
-    pub instructions_contains: Option<String>,
-    /// Hash of the canonicalized request body, as proxy-record writes it in
-    /// transcript format. A hashed scenario matches only the exact request
-    /// it was recorded from, so replay does not depend on request order.
-    pub request_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -110,11 +91,7 @@ pub enum ScenarioScript {
 }
 
 /// One recorded SSE event of a transcript scenario.
-#[derive(Clone, Debug, Deserialize)]
-pub struct TranscriptEvent {
-    pub event: Option<String>,
-    pub data: String,
-}
+pub use twin_core::sse::TranscriptEvent;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToolCallTemplate {
@@ -167,18 +144,6 @@ pub enum FinishReason {
     Length,
 }
 
-#[derive(Clone, Debug)]
-pub struct RequestContext {
-    pub endpoint: String,
-    pub model: String,
-    pub stream: bool,
-    pub metadata: Map<String, Value>,
-    pub input_text: String,
-    pub instructions_text: String,
-    /// Hash of the canonicalized request body, for transcript matching.
-    pub request_hash: Option<String>,
-}
-
 impl ScenarioScript {
     pub fn script_kind(&self) -> &str {
         match self {
@@ -193,46 +158,7 @@ impl ScenarioScript {
 
 impl Scenario {
     pub fn matches(&self, request: &RequestContext) -> bool {
-        if self.matcher.endpoint != request.endpoint {
-            return false;
-        }
-
-        if let Some(model) = &self.matcher.model {
-            if model != &request.model {
-                return false;
-            }
-        }
-
-        if let Some(stream) = self.matcher.stream {
-            if stream != request.stream {
-                return false;
-            }
-        }
-
-        if let Some(needle) = &self.matcher.input_contains {
-            if !request.input_text.contains(needle) {
-                return false;
-            }
-        }
-
-        if let Some(needle) = &self.matcher.instructions_contains {
-            if !request.instructions_text.contains(needle) {
-                return false;
-            }
-        }
-
-        if let Some(request_hash) = &self.matcher.request_hash {
-            if request.request_hash.as_ref() != Some(request_hash) {
-                return false;
-            }
-        }
-
-        self.matcher.metadata.iter().all(|(key, value)| {
-            request
-                .metadata
-                .get(key)
-                .is_some_and(|candidate| candidate == value)
-        })
+        self.matcher.matches(request)
     }
 
     pub fn execute_for_responses(
@@ -405,19 +331,31 @@ impl Scenario {
 pub fn validate_scenario_ids<'a>(
     scenarios: impl IntoIterator<Item = &'a Scenario>,
 ) -> Result<(), String> {
-    let mut scenario_ids = HashSet::new();
-    for scenario in scenarios {
-        let Some(scenario_id) = scenario.scenario_id.as_deref() else {
-            continue;
-        };
-        if scenario_id.trim().is_empty() {
-            return Err("scenario_id must not be empty".to_owned());
-        }
-        if !scenario_ids.insert(scenario_id) {
-            return Err(format!("duplicate scenario_id: {scenario_id}"));
-        }
+    validate_scenarios(scenarios)
+}
+
+impl QueuedScenario for Scenario {
+    fn scenario_id(&self) -> Option<&str> {
+        self.scenario_id.as_deref()
     }
-    Ok(())
+    fn namespace(&self) -> Option<&str> {
+        self.namespace.as_deref()
+    }
+    fn matcher(&self) -> &ScenarioMatcher {
+        &self.matcher
+    }
+    fn repeat(&self) -> u32 {
+        self.repeat
+    }
+    fn repeat_mut(&mut self) -> &mut u32 {
+        &mut self.repeat
+    }
+    fn sticky(&self) -> bool {
+        self.sticky
+    }
+    fn script_kind(&self) -> &str {
+        self.script.script_kind()
+    }
 }
 
 fn transcript_outcome(

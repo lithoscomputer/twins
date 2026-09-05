@@ -409,3 +409,49 @@ fn the_generic_upstream_key_and_record_format_parse() {
     let invalid = |name: &str| (name == "TWIN_OPENAI_RECORD_FORMAT").then(|| "verbatim".to_owned());
     assert!(Config::from_lookup(&invalid).is_err());
 }
+
+#[tokio::test]
+async fn append_rejects_invalid_scenarios_without_changing_the_recording() {
+    let recording = recording_path();
+    let valid = json!({
+        "scenario_id": "suite/0001",
+        "matcher": {"endpoint": "responses"},
+        "script": {"kind": "success", "response_text": "saved"}
+    });
+    let mut empty_id = valid.clone();
+    empty_id["scenario_id"] = json!(" ");
+    for document in [
+        json!({"scenarios": [{"scenario_id": "suite/0001"}]}),
+        json!({"scenarios": [empty_id]}),
+        json!({"scenarios": [valid.clone(), valid.clone()]}),
+    ] {
+        let original = serde_json::to_vec_pretty(&document).expect("JSON");
+        std::fs::write(&recording, &original).expect("save recording");
+        let result = twin_openai::build_app_with_config(proxy_config(
+            "http://127.0.0.1:1",
+            &recording,
+            true,
+        ));
+        assert!(
+            result.is_err(),
+            "invalid recording was accepted: {document}"
+        );
+        assert_eq!(std::fs::read(&recording).expect("recording"), original);
+    }
+
+    // Typed validation must keep extension fields in valid saved scenarios.
+    let mut extended = valid;
+    extended["extension"] = json!({"keep": true});
+    std::fs::write(
+        &recording,
+        serde_json::to_vec(&json!({"scenarios": [extended.clone()]})).expect("JSON"),
+    )
+    .expect("save recording");
+    let _app =
+        twin_openai::build_app_with_config(proxy_config("http://127.0.0.1:1", &recording, true))
+            .expect("valid recording should append");
+    let saved: Value =
+        serde_json::from_slice(&std::fs::read(&recording).expect("recording")).expect("saved JSON");
+    assert_eq!(saved["scenarios"][0], extended);
+    std::fs::remove_file(recording).expect("remove recording");
+}

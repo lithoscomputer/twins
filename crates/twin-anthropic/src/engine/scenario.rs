@@ -2,13 +2,12 @@ use super::plan::TokenUsage;
 use crate::transport::{RawChunk, RawOutcome};
 use axum::http::{HeaderName, HeaderValue, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashSet};
+use serde_json::Value;
+use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct ScenarioEnvelope {
-    pub scenarios: Vec<Scenario>,
-}
+use twin_core::scenario::{validate_scenarios, QueuedScenario};
+pub use twin_core::scenario::{RequestContext, ScenarioMatcher};
+pub type ScenarioEnvelope = twin_core::scenario::ScenarioEnvelope<Scenario>;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Scenario {
@@ -23,29 +22,6 @@ pub struct Scenario {
 }
 fn default_repeat() -> u32 {
     1
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct ScenarioMatcher {
-    pub endpoint: String,
-    pub model: Option<String>,
-    pub stream: Option<bool>,
-    #[serde(default)]
-    pub metadata: Map<String, Value>,
-    pub input_contains: Option<String>,
-    pub instructions_contains: Option<String>,
-    pub request_hash: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct RequestContext {
-    pub endpoint: String,
-    pub model: String,
-    pub stream: bool,
-    pub metadata: Map<String, Value>,
-    pub input_text: String,
-    pub instructions_text: String,
-    pub request_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -124,11 +100,7 @@ pub enum ScenarioScript {
     },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TranscriptEvent {
-    pub event: Option<String>,
-    pub data: String,
-}
+pub use twin_core::sse::TranscriptEvent;
 
 impl ScenarioScript {
     pub fn script_kind(&self) -> &str {
@@ -144,59 +116,49 @@ impl ScenarioScript {
 
 impl Scenario {
     pub fn matches(&self, request: &RequestContext) -> bool {
-        self.matcher.endpoint == request.endpoint
-            && self
-                .matcher
-                .model
-                .as_ref()
-                .is_none_or(|m| m == &request.model)
-            && self.matcher.stream.is_none_or(|s| s == request.stream)
-            && self
-                .matcher
-                .input_contains
-                .as_ref()
-                .is_none_or(|s| request.input_text.contains(s))
-            && self
-                .matcher
-                .instructions_contains
-                .as_ref()
-                .is_none_or(|s| request.instructions_text.contains(s))
-            && self
-                .matcher
-                .request_hash
-                .as_ref()
-                .is_none_or(|s| request.request_hash.as_ref() == Some(s))
-            && self
-                .matcher
-                .metadata
-                .iter()
-                .all(|(k, v)| request.metadata.get(k) == Some(v))
+        self.matcher.matches(request)
     }
 }
 
 pub fn validate_scenario_ids<'a>(
     scenarios: impl IntoIterator<Item = &'a Scenario>,
 ) -> Result<(), String> {
-    let mut ids = HashSet::new();
-    for scenario in scenarios {
-        if let Some(id) = &scenario.scenario_id {
-            if id.trim().is_empty() {
-                return Err("scenario_id must not be empty".to_owned());
-            }
-            if !ids.insert(id) {
-                return Err(format!("duplicate scenario_id: {id}"));
-            }
-        }
-        if scenario.repeat == 0 {
+    validate_scenarios(scenarios)
+}
+
+impl QueuedScenario for Scenario {
+    fn scenario_id(&self) -> Option<&str> {
+        self.scenario_id.as_deref()
+    }
+    fn namespace(&self) -> Option<&str> {
+        self.namespace.as_deref()
+    }
+    fn matcher(&self) -> &ScenarioMatcher {
+        &self.matcher
+    }
+    fn repeat(&self) -> u32 {
+        self.repeat
+    }
+    fn repeat_mut(&mut self) -> &mut u32 {
+        &mut self.repeat
+    }
+    fn sticky(&self) -> bool {
+        self.sticky
+    }
+    fn script_kind(&self) -> &str {
+        self.script.script_kind()
+    }
+    fn validate(&self) -> Result<(), String> {
+        if self.repeat == 0 {
             return Err("repeat must be positive".to_owned());
         }
         if !matches!(
-            scenario.matcher.endpoint.as_str(),
+            self.matcher.endpoint.as_str(),
             "messages" | "messages.count_tokens"
         ) {
             return Err("endpoint must be messages or messages.count_tokens".to_owned());
         }
-        let (status, headers, content_type) = match &scenario.script {
+        let (status, headers, content_type) = match &self.script {
             ScenarioScript::Success(s) => {
                 if let Some(reason) = s.stop_reason.as_ref().or(s.finish_reason.as_ref()) {
                     if !matches!(
@@ -255,7 +217,7 @@ pub fn validate_scenario_ids<'a>(
                 }
                 (*status, headers, content_type.as_ref())
             }
-            ScenarioScript::Hang { .. } => continue,
+            ScenarioScript::Hang { .. } => return Ok(()),
         };
         if StatusCode::from_u16(status).is_err() || status < 200 {
             return Err("invalid final response status".to_owned());
@@ -268,8 +230,8 @@ pub fn validate_scenario_ids<'a>(
         if content_type.is_some_and(|s| HeaderValue::try_from(s).is_err()) {
             return Err("invalid content type".to_owned());
         }
+        Ok(())
     }
-    Ok(())
 }
 
 pub fn raw_outcome(

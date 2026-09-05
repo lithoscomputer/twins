@@ -20,30 +20,8 @@ const RECORDING_APPEND_ENV: &str = "TWIN_OPENAI_RECORDING_APPEND";
 
 const DEFAULT_UPSTREAM_URL: &str = "https://api.openai.com";
 
-/// How the server treats `/v1/*` traffic.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Mode {
-    /// Serve deterministic twin responses (scenarios and fallbacks).
-    #[default]
-    Twin,
-    /// Forward requests to a real upstream, stream responses back verbatim,
-    /// and derive a scenario recording from every successful exchange.
-    ProxyRecord,
-}
-
-/// What proxy-record mode writes for each successful exchange.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum RecordFormat {
-    /// Derive the exchange into the canonical scenario shape: response
-    /// text, tool calls, usage. Replays through the twin's engine.
-    #[default]
-    Semantic,
-    /// Keep the exchange verbatim: status, content type, and the raw JSON
-    /// body or the ordered SSE events. Replays byte-faithfully, preserving
-    /// provider extension fields and event granularity the canonical
-    /// engine would erase.
-    Transcript,
-}
+use twin_core::config::{lookup_api_key, parse_bool_env, validate_proxy_record};
+pub use twin_core::config::{Mode, RecordFormat};
 
 #[derive(Clone, Debug)]
 #[allow(
@@ -117,9 +95,7 @@ impl Config {
             );
         let upstream_responses_path =
             lookup(UPSTREAM_RESPONSES_PATH_ENV).filter(|value| !value.is_empty());
-        let upstream_api_key = lookup(UPSTREAM_API_KEY_ENV)
-            .or_else(|| lookup(OPENAI_API_KEY_ENV))
-            .filter(|value| !value.is_empty());
+        let upstream_api_key = lookup_api_key(lookup, UPSTREAM_API_KEY_ENV, OPENAI_API_KEY_ENV);
         let recording_path = lookup(RECORDING_PATH_ENV)
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
@@ -155,16 +131,14 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.mode == Mode::ProxyRecord {
-            anyhow::ensure!(
-                self.upstream_api_key.is_some(),
-                "proxy-record mode requires {UPSTREAM_API_KEY_ENV} or {OPENAI_API_KEY_ENV}"
-            );
-            anyhow::ensure!(
-                self.recording_path.is_some(),
-                "proxy-record mode requires {RECORDING_PATH_ENV}"
-            );
-        }
+        validate_proxy_record(
+            self.mode,
+            self.upstream_api_key.as_deref(),
+            self.recording_path.as_deref(),
+            UPSTREAM_API_KEY_ENV,
+            OPENAI_API_KEY_ENV,
+            RECORDING_PATH_ENV,
+        )?;
         if let Some(path) = &self.upstream_responses_path {
             anyhow::ensure!(
                 path.starts_with('/'),
@@ -196,13 +170,5 @@ impl Default for Config {
             record_format: RecordFormat::Semantic,
             recording_append: false,
         })
-    }
-}
-
-fn parse_bool_env(value: &str, name: &str) -> Result<bool> {
-    match value {
-        "true" | "1" => Ok(true),
-        "false" | "0" => Ok(false),
-        _ => anyhow::bail!("{name} must be true/false or 1/0"),
     }
 }

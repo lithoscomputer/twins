@@ -25,3 +25,30 @@ fn config_loads_from_environment() {
     );
     assert!(config.allow_unmatched);
 }
+
+#[test]
+fn empty_upstream_override_uses_the_standard_api_key() {
+    let config = Config::from_lookup(&|name| match name {
+        "TWIN_OPENAI_MODE" => Some("proxy-record".to_owned()),
+        "TWIN_OPENAI_RECORDING_PATH" => Some("recording.json".to_owned()),
+        "TWIN_OPENAI_UPSTREAM_API_KEY" => Some(String::new()),
+        "OPENAI_API_KEY" => Some("standard-key".to_owned()),
+        _ => None,
+    })
+    .expect("empty override should fall back to OPENAI_API_KEY");
+    assert_eq!(config.upstream_api_key.as_deref(), Some("standard-key"));
+}
+
+#[test]
+fn proxy_record_rejects_blank_keys_in_programmatic_configs() {
+    let base = Config::from_lookup(&|_| None).expect("default configuration");
+    for key in [None, Some(""), Some(" \t\n")] {
+        let config = Config {
+            mode: twin_openai::config::Mode::ProxyRecord,
+            upstream_api_key: key.map(str::to_owned),
+            recording_path: Some("recording.json".into()),
+            ..base.clone()
+        };
+        assert!(config.validate().is_err());
+    }
+}
