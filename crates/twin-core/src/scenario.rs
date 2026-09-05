@@ -1,8 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use axum::http::{HeaderName, HeaderValue, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{Map, Value};
 
@@ -93,7 +94,35 @@ pub fn validate_scenarios<'a, S: QueuedScenario + 'a>(
                 return Err(format!("duplicate scenario_id: {id}"));
             }
         }
+        if scenario.repeat() == 0 {
+            return Err("repeat must be positive".to_owned());
+        }
         scenario.validate()?;
+    }
+    Ok(())
+}
+
+/// Validate response metadata before a script can enter the scenario queue.
+/// Raw body chunks remain unrestricted so tests can send malformed body bytes.
+pub fn validate_response(
+    status: u16,
+    headers: &BTreeMap<String, String>,
+    content_type: Option<&str>,
+    retry_after: Option<&str>,
+) -> Result<(), String> {
+    if retry_after.is_some_and(|value| HeaderValue::try_from(value).is_err()) {
+        return Err("invalid Retry-After header".to_owned());
+    }
+    if StatusCode::from_u16(status).is_err() || status < 200 {
+        return Err("invalid final response status".to_owned());
+    }
+    for (key, value) in headers {
+        if HeaderName::try_from(key).is_err() || HeaderValue::try_from(value).is_err() {
+            return Err("invalid response header".to_owned());
+        }
+    }
+    if content_type.is_some_and(|value| HeaderValue::try_from(value).is_err()) {
+        return Err("invalid content type".to_owned());
     }
     Ok(())
 }

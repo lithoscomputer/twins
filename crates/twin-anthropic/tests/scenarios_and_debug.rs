@@ -105,6 +105,11 @@ async fn scenario_validation_is_atomic() {
             json!({"kind":"error","status":429,"error_type":"rate_limit_error","message":"retry","retry_after":"bad\nheader"}),
         ),
         scenario(json!({"kind":"transcript","status":200,"body":{},"events":[]})),
+        scenario(json!({"kind":"raw","status":100,"chunks":[]})),
+        scenario(json!({"kind":"transcript","status":1000,"body":{}})),
+        scenario(json!({"kind":"success","headers":{"bad name":"value"}})),
+        scenario(json!({"kind":"raw","status":200,"chunks":[],"headers":{"x-test":"bad\nvalue"}})),
+        scenario(json!({"kind":"transcript","status":200,"body":{},"content_type":"bad\nvalue"})),
     ] {
         let r = server
             .post("/__admin/scenarios", "a", &json!({"scenarios":[bad]}))

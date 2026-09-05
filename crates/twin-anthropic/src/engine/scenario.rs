@@ -1,11 +1,11 @@
 use super::plan::TokenUsage;
 use crate::transport::{RawChunk, RawOutcome};
-use axum::http::{HeaderName, HeaderValue, StatusCode};
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-use twin_core::scenario::{validate_scenarios, QueuedScenario};
+use twin_core::scenario::{validate_response, validate_scenarios, QueuedScenario};
 pub use twin_core::scenario::{RequestContext, ScenarioMatcher};
 pub type ScenarioEnvelope = twin_core::scenario::ScenarioEnvelope<Scenario>;
 
@@ -149,16 +149,13 @@ impl QueuedScenario for Scenario {
         self.script.script_kind()
     }
     fn validate(&self) -> Result<(), String> {
-        if self.repeat == 0 {
-            return Err("repeat must be positive".to_owned());
-        }
         if !matches!(
             self.matcher.endpoint.as_str(),
             "messages" | "messages.count_tokens"
         ) {
             return Err("endpoint must be messages or messages.count_tokens".to_owned());
         }
-        let (status, headers, content_type) = match &self.script {
+        let (status, headers, content_type, retry_after) = match &self.script {
             ScenarioScript::Success(s) => {
                 if let Some(reason) = s.stop_reason.as_ref().or(s.finish_reason.as_ref()) {
                     if !matches!(
@@ -176,28 +173,20 @@ impl QueuedScenario for Scenario {
                         return Err(format!("unsupported stop reason: {reason}"));
                     }
                 }
-                (200, &s.headers, None)
+                (200, &s.headers, None, None)
             }
             ScenarioScript::Error {
                 status,
                 headers,
                 retry_after,
                 ..
-            } => {
-                if retry_after
-                    .as_ref()
-                    .is_some_and(|s| HeaderValue::try_from(s).is_err())
-                {
-                    return Err("invalid Retry-After header".to_owned());
-                }
-                (*status, headers, None)
-            }
+            } => (*status, headers, None, retry_after.as_deref()),
             ScenarioScript::Raw {
                 status,
                 headers,
                 content_type,
                 ..
-            } => (*status, headers, content_type.as_ref()),
+            } => (*status, headers, content_type.as_deref(), None),
             ScenarioScript::Transcript {
                 status,
                 headers,
@@ -215,22 +204,11 @@ impl QueuedScenario for Scenario {
                         "transcript requires exactly one of body, body_text, events".to_owned()
                     );
                 }
-                (*status, headers, content_type.as_ref())
+                (*status, headers, content_type.as_deref(), None)
             }
             ScenarioScript::Hang { .. } => return Ok(()),
         };
-        if StatusCode::from_u16(status).is_err() || status < 200 {
-            return Err("invalid final response status".to_owned());
-        }
-        for (key, value) in headers {
-            if HeaderName::try_from(key).is_err() || HeaderValue::try_from(value).is_err() {
-                return Err("invalid response header".to_owned());
-            }
-        }
-        if content_type.is_some_and(|s| HeaderValue::try_from(s).is_err()) {
-            return Err("invalid content type".to_owned());
-        }
-        Ok(())
+        validate_response(status, headers, content_type, retry_after)
     }
 }
 

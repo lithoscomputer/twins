@@ -11,7 +11,7 @@ use super::plan::{ResponsePlan, TokenUsage, ToolCallPlan};
 use crate::openai::models::{ChatCompletionsRequest, ResponsesRequest};
 use crate::transport::{RawChunk, RawOutcome};
 
-use twin_core::scenario::{validate_scenarios, QueuedScenario};
+use twin_core::scenario::{validate_response, validate_scenarios, QueuedScenario};
 pub use twin_core::scenario::{RequestContext, ScenarioMatcher};
 pub type ScenarioEnvelope = twin_core::scenario::ScenarioEnvelope<Scenario>;
 
@@ -355,6 +355,28 @@ impl QueuedScenario for Scenario {
     }
     fn script_kind(&self) -> &str {
         self.script.script_kind()
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        match &self.script {
+            ScenarioScript::Raw {
+                status,
+                headers,
+                content_type,
+                ..
+            } => validate_response(*status, headers, content_type.as_deref(), None),
+            ScenarioScript::Transcript {
+                status,
+                content_type,
+                ..
+            } => validate_response(*status, &BTreeMap::new(), content_type.as_deref(), None),
+            ScenarioScript::Error {
+                status,
+                retry_after,
+                ..
+            } => validate_response(*status, &BTreeMap::new(), None, retry_after.as_deref()),
+            ScenarioScript::Success { .. } | ScenarioScript::Hang { .. } => Ok(()),
+        }
     }
 }
 
