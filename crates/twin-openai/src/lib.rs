@@ -8,6 +8,7 @@ pub mod app;
 pub mod config;
 pub mod debug_ui;
 pub mod engine;
+pub mod evaluation;
 pub mod logs;
 pub mod openai;
 pub mod proxy;

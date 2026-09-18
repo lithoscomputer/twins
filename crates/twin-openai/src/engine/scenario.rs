@@ -326,6 +326,68 @@ impl Scenario {
             },
         }
     }
+
+    /// The evaluation endpoint has no canonical response plan, so only
+    /// scripts that carry their own bytes replay: transcript, raw, error,
+    /// and hang. A success script answers with a scripted 400 instead of
+    /// inventing an evaluation shape.
+    pub fn execute_for_evaluation(&self) -> ExecutionOutcome {
+        match &self.script {
+            ScenarioScript::Success { .. } => ExecutionOutcome::Error(ErrorOutcome::new(
+                StatusCode::BAD_REQUEST,
+                "evaluation scenarios replay transcript, raw, error, or hang scripts only"
+                    .to_owned(),
+                "invalid_request_error".to_owned(),
+                "unsupported_script".to_owned(),
+                None,
+                0,
+            )),
+            ScenarioScript::Transcript {
+                status,
+                content_type,
+                body,
+                events,
+            } => ExecutionOutcome::Transcript(transcript_outcome(
+                *status,
+                content_type.clone(),
+                body.clone(),
+                events.clone(),
+            )),
+            ScenarioScript::Raw {
+                status,
+                content_type,
+                headers,
+                chunks,
+                delay_before_headers_ms,
+            } => ExecutionOutcome::Raw(raw_outcome(
+                *status,
+                content_type.clone(),
+                headers.clone(),
+                chunks.clone(),
+                *delay_before_headers_ms,
+            )),
+            ScenarioScript::Error {
+                status,
+                message,
+                error_type,
+                code,
+                retry_after,
+                delay_before_headers_ms,
+            } => ExecutionOutcome::Error(ErrorOutcome::new(
+                StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                message.clone(),
+                error_type.clone(),
+                code.clone(),
+                retry_after.clone(),
+                delay_before_headers_ms.unwrap_or_default(),
+            )),
+            ScenarioScript::Hang {
+                delay_before_headers_ms,
+            } => ExecutionOutcome::Hang {
+                delay_before_headers_ms: delay_before_headers_ms.unwrap_or_default(),
+            },
+        }
+    }
 }
 
 pub fn validate_scenario_ids<'a>(

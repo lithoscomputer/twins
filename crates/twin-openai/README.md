@@ -10,11 +10,17 @@ Async Rust fake OpenAI-compatible server for local black-box testing.
 - `POST /v1/responses/input_tokens`
 - `POST /v1/chat/completions`
 - `POST /codex/responses`
+- `POST /v4/ai/evaluation-model`
 - `POST /__admin/scenarios`
 - `POST /__admin/reset`
 - `GET /__admin/requests`
 
 `/v1/*` routes require a non-empty bearer token. Scenarios, request logs, and deterministic response IDs are scoped by bearer token so concurrent test clients can share one server safely.
+
+`POST /v4/ai/evaluation-model` is the Vercel AI Gateway's evaluation-model
+API. It replays recorded `evaluation` scenarios only, matched by
+`request_hash`, and has no deterministic fallback: an unmatched request fails
+with `scenario_not_found`.
 
 `GET /v1/models` returns one stable `gpt-test` model entry. Generation routes
 continue to accept any non-empty model ID. `POST /v1/responses/input_tokens`
@@ -209,6 +215,10 @@ cargo run -p twin-openai
   interrupted run keeps what it captured.
 - Model discovery and input-token counts pass through without being recorded.
   Twin mode serves deterministic local results for both during replay.
+- `POST /v4/ai/evaluation-model` is forwarded to the same upstream root with
+  its `ai-gateway-protocol-version`, `ai-evaluation-model-specification-version`,
+  and `ai-model-id` headers. A successful exchange is recorded only in
+  transcript format; in semantic format it passes through with a warning.
 - Failed upstream responses and underivable exchanges pass through without
   being recorded. Admin and debug routes are not mounted in this mode.
 

@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::config::Mode;
 use crate::state::AppState;
-use crate::{admin, debug_ui, openai, proxy};
+use crate::{admin, debug_ui, evaluation, openai, proxy};
 
 pub fn router(state: AppState) -> Result<Router> {
     if state.config.mode == Mode::ProxyRecord {
@@ -16,6 +16,10 @@ pub fn router(state: AppState) -> Result<Router> {
     let mut router = Router::new()
         .route("/healthz", get(healthz))
         .route("/codex/responses", post(openai::responses::create_response))
+        .route(
+            evaluation::EVALUATION_PATH,
+            post(evaluation::create_evaluation),
+        )
         .nest("/v1", openai::router(state.config.require_auth));
 
     if state.config.enable_admin {

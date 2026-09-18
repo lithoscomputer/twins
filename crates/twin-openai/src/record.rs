@@ -17,6 +17,10 @@ use serde_json::{json, Map, Value};
 pub enum RecordedEndpoint {
     Responses,
     ChatCompletions,
+    /// The Vercel AI Gateway's `POST /v4/ai/evaluation-model`: a
+    /// never-streamed JSON exchange the canonical engine has no plan for,
+    /// so it records as a transcript only.
+    Evaluation,
 }
 
 impl RecordedEndpoint {
@@ -25,6 +29,7 @@ impl RecordedEndpoint {
         match self {
             Self::Responses => "responses",
             Self::ChatCompletions => "chat.completions",
+            Self::Evaluation => "evaluation",
         }
     }
 }
@@ -43,10 +48,13 @@ impl ExchangeShape {
     /// Derive the shape from a request body.
     #[must_use]
     pub fn from_request(endpoint: RecordedEndpoint, request: &Value) -> Self {
-        let stream = request
-            .get("stream")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        // The evaluation endpoint is never streamed and has no structured
+        // output flag, whatever the body says.
+        let stream = endpoint != RecordedEndpoint::Evaluation
+            && request
+                .get("stream")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
         let format_kind = match endpoint {
             RecordedEndpoint::Responses => request
                 .get("text")
@@ -57,6 +65,7 @@ impl ExchangeShape {
                 .get("response_format")
                 .and_then(|format| format.get("type"))
                 .and_then(Value::as_str),
+            RecordedEndpoint::Evaluation => None,
         };
         let structured = matches!(format_kind, Some("json_object" | "json_schema"));
 
@@ -150,6 +159,9 @@ fn observe_body(shape: ExchangeShape, body: &Value) -> Result<Observation> {
     match shape.endpoint {
         RecordedEndpoint::Responses => observe_responses_body(shape, body),
         RecordedEndpoint::ChatCompletions => observe_chat_body(shape, body),
+        RecordedEndpoint::Evaluation => anyhow::bail!(
+            "evaluation exchanges have no canonical scenario shape; record them as transcripts"
+        ),
     }
 }
 
@@ -302,6 +314,9 @@ fn observe_stream(shape: ExchangeShape, events: &[RecordedSseEvent]) -> Result<O
     match shape.endpoint {
         RecordedEndpoint::Responses => observe_responses_stream(shape, events),
         RecordedEndpoint::ChatCompletions => observe_chat_stream(shape, events),
+        RecordedEndpoint::Evaluation => {
+            anyhow::bail!("evaluation exchanges are never streamed")
+        }
     }
 }
 
