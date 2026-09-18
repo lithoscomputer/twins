@@ -10,6 +10,7 @@ Async Rust fake OpenAI-compatible server for local black-box testing.
 - `POST /v1/responses/input_tokens`
 - `POST /v1/chat/completions`
 - `POST /codex/responses`
+- `POST /v1/systemone`
 - `POST /v4/ai/evaluation-model`
 - `POST /__admin/scenarios`
 - `POST /__admin/reset`
@@ -21,6 +22,10 @@ Async Rust fake OpenAI-compatible server for local black-box testing.
 API. It replays recorded `evaluation` scenarios only, matched by
 `request_hash`, and has no deterministic fallback: an unmatched request fails
 with `scenario_not_found`.
+
+`POST /v1/systemone` is TypeSafe AI's evaluation API. It replays recorded
+`systemone` scenarios the same way, matched by `request_hash`, together with
+the recorded `x-typesafe-request-id` response header.
 
 `GET /v1/models` returns one stable `gpt-test` model entry. Generation routes
 continue to accept any non-empty model ID. `POST /v1/responses/input_tokens`
@@ -219,6 +224,12 @@ cargo run -p twin-openai
   its `ai-gateway-protocol-version`, `ai-evaluation-model-specification-version`,
   and `ai-model-id` headers. A successful exchange is recorded only in
   transcript format; in semantic format it passes through with a warning.
+- `POST /v1/systemone` is forwarded to the same upstream root unrebased, so
+  `TWIN_OPENAI_UPSTREAM_URL=https://api.typesafe.ai` serves it. The
+  `x-typesafe-request-id` response header passes back to the client and is
+  recorded into the transcript scenario's `headers`, so replay serves it
+  again. As with the evaluation-model route, a successful exchange is
+  recorded only in transcript format.
 - Failed upstream responses and underivable exchanges pass through without
   being recorded. Admin and debug routes are not mounted in this mode.
 

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use axum::http::StatusCode;
 use serde_json::Value;
 
@@ -46,6 +48,8 @@ pub enum ExecutionOutcome {
 pub struct TranscriptOutcome {
     pub status: StatusCode,
     pub content_type: Option<String>,
+    /// Recorded response headers to replay alongside the body.
+    pub headers: BTreeMap<String, String>,
     pub body: TranscriptBody,
 }
 

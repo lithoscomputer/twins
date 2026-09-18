@@ -15,6 +15,7 @@ pub mod proxy;
 pub mod record;
 pub mod sse;
 pub mod state;
+pub mod systemone;
 pub mod transport;
 
 use anyhow::Result;

@@ -76,6 +76,11 @@ pub enum ScenarioScript {
     Transcript {
         status: u16,
         content_type: Option<String>,
+        /// Response headers replayed with the body. Proxy-record fills this
+        /// from a small allowlist of provider headers a client reads back,
+        /// such as TypeSafe's `x-typesafe-request-id`.
+        #[serde(default)]
+        headers: BTreeMap<String, String>,
         body: Option<Value>,
         events: Option<Vec<TranscriptEvent>>,
     },
@@ -200,11 +205,13 @@ impl Scenario {
             ScenarioScript::Transcript {
                 status,
                 content_type,
+                headers,
                 body,
                 events,
             } => ExecutionOutcome::Transcript(transcript_outcome(
                 *status,
                 content_type.clone(),
+                headers.clone(),
                 body.clone(),
                 events.clone(),
             )),
@@ -283,11 +290,13 @@ impl Scenario {
             ScenarioScript::Transcript {
                 status,
                 content_type,
+                headers,
                 body,
                 events,
             } => ExecutionOutcome::Transcript(transcript_outcome(
                 *status,
                 content_type.clone(),
+                headers.clone(),
                 body.clone(),
                 events.clone(),
             )),
@@ -327,10 +336,10 @@ impl Scenario {
         }
     }
 
-    /// The evaluation endpoint has no canonical response plan, so only
-    /// scripts that carry their own bytes replay: transcript, raw, error,
-    /// and hang. A success script answers with a scripted 400 instead of
-    /// inventing an evaluation shape.
+    /// The evaluation endpoints (`evaluation`, `systemone`) have no
+    /// canonical response plan, so only scripts that carry their own bytes
+    /// replay: transcript, raw, error, and hang. A success script answers
+    /// with a scripted 400 instead of inventing an evaluation shape.
     pub fn execute_for_evaluation(&self) -> ExecutionOutcome {
         match &self.script {
             ScenarioScript::Success { .. } => ExecutionOutcome::Error(ErrorOutcome::new(
@@ -345,11 +354,13 @@ impl Scenario {
             ScenarioScript::Transcript {
                 status,
                 content_type,
+                headers,
                 body,
                 events,
             } => ExecutionOutcome::Transcript(transcript_outcome(
                 *status,
                 content_type.clone(),
+                headers.clone(),
                 body.clone(),
                 events.clone(),
             )),
@@ -426,12 +437,13 @@ impl QueuedScenario for Scenario {
                 headers,
                 content_type,
                 ..
-            } => validate_response(*status, headers, content_type.as_deref(), None),
-            ScenarioScript::Transcript {
+            }
+            | ScenarioScript::Transcript {
                 status,
                 content_type,
+                headers,
                 ..
-            } => validate_response(*status, &BTreeMap::new(), content_type.as_deref(), None),
+            } => validate_response(*status, headers, content_type.as_deref(), None),
             ScenarioScript::Error {
                 status,
                 retry_after,
@@ -445,12 +457,14 @@ impl QueuedScenario for Scenario {
 fn transcript_outcome(
     status: u16,
     content_type: Option<String>,
+    headers: BTreeMap<String, String>,
     body: Option<Value>,
     events: Option<Vec<TranscriptEvent>>,
 ) -> TranscriptOutcome {
     TranscriptOutcome {
         status: StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
         content_type,
+        headers,
         body: match events {
             Some(events) => TranscriptBody::Events(events),
             None => TranscriptBody::Json(body.unwrap_or(Value::Null)),
