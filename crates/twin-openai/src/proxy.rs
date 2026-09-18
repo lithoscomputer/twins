@@ -4,9 +4,11 @@
 //! client's bearer token replaced by the configured upstream key. Successful
 //! `/v1/responses` and `/v1/chat/completions` exchanges are derived into
 //! scripted scenarios appended to the recording file. Model discovery and
-//! input-token counts pass through without being recorded. The client's bearer
-//! token names the generation recording namespace, so each test's calls replay
-//! later as an ordered per-namespace queue.
+//! input-token counts pass through without being recorded. The Vercel AI
+//! Gateway's `/v4/ai/evaluation-model` is forwarded to the same upstream
+//! root and recorded as a transcript only. The client's bearer token names
+//! the generation recording namespace, so each test's calls replay later as
+//! an ordered per-namespace queue.
 //!
 //! Failed upstream responses and underivable exchanges are passed through
 //! but not recorded. Admin and debug routes are not mounted in this mode.
@@ -25,6 +27,7 @@ use serde_json::{json, Map, Value};
 
 use crate::config::{Config, RecordFormat};
 use crate::engine::scenario::Scenario;
+use crate::evaluation::EVALUATION_PATH;
 use crate::openai::auth;
 use crate::record::{
     derive_script, parse_sse_events, request_hash, ExchangeShape, RecordedEndpoint,
@@ -72,19 +75,20 @@ pub fn router(config: &Config) -> Result<Router> {
         recorder: Arc::new(Recorder::create(recording_path, config.recording_append)?),
     };
 
-    let mut v1 = Router::new()
+    let mut api = Router::new()
         .route("/v1/models", get(proxy_models))
         .route("/v1/responses", post(proxy_responses))
         .route(
             "/v1/responses/input_tokens",
             post(proxy_response_input_tokens),
         )
-        .route("/v1/chat/completions", post(proxy_chat));
+        .route("/v1/chat/completions", post(proxy_chat))
+        .route(EVALUATION_PATH, post(proxy_evaluation));
     if config.require_auth {
-        v1 = v1.layer(middleware::from_fn(auth::require_bearer_auth));
+        api = api.layer(middleware::from_fn(auth::require_bearer_auth));
     }
 
-    Ok(v1.route("/healthz", get(healthz)).with_state(state))
+    Ok(api.route("/healthz", get(healthz)).with_state(state))
 }
 
 async fn healthz() -> impl IntoResponse {
@@ -124,6 +128,23 @@ async fn proxy_chat(State(state): State<ProxyState>, headers: HeaderMap, body: B
         state,
         RecordedEndpoint::ChatCompletions,
         "/v1/chat/completions",
+        &headers,
+        body,
+    )
+    .await
+}
+
+/// The evaluation path is not rebased: the gateway hangs it off the same
+/// root as its `/v1` family, so one `upstream_url` serves both.
+async fn proxy_evaluation(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_exchange(
+        state,
+        RecordedEndpoint::Evaluation,
+        EVALUATION_PATH,
         &headers,
         body,
     )
@@ -261,12 +282,17 @@ fn build_upstream_request(
             format!("Bearer {}", state.upstream_api_key),
         );
     // `chatgpt-account-id` and `originator` are the Codex deployment's seat
-    // envelope; forwarding them costs nothing on the platform API.
+    // envelope; forwarding them costs nothing on the platform API. The
+    // `ai-*` headers are the Vercel AI Gateway's protocol envelope, which
+    // names the evaluation model and the specification version.
     for name in [
         "openai-organization",
         "openai-project",
         "chatgpt-account-id",
         "originator",
+        "ai-gateway-protocol-version",
+        "ai-evaluation-model-specification-version",
+        "ai-model-id",
     ] {
         if let Some(value) = headers.get(name) {
             request = request.header(name, value);

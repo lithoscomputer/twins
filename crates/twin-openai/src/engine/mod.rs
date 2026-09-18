@@ -136,6 +136,41 @@ pub fn execute_chat_request(
     )?))
 }
 
+/// Replays a recorded evaluation-model exchange.
+///
+/// The request body is opaque to the engine: the endpoint has no canonical
+/// plan and no deterministic fallback, so an unmatched request is always
+/// `scenario_not_found`. `model` comes from the gateway's `ai-model-id`
+/// header rather than the body.
+pub fn execute_evaluation_request(
+    state: &AppState,
+    namespace: &NamespaceKey,
+    model: &str,
+    request_hash: Option<String>,
+) -> Result<ExecutionOutcome, OpenAiError> {
+    let context = RequestContext {
+        endpoint: "evaluation".to_owned(),
+        model: model.to_owned(),
+        stream: false,
+        metadata: serde_json::Map::new(),
+        input_text: String::new(),
+        instructions_text: String::new(),
+        request_hash,
+    };
+    let scenario = state.take_matching_scenario(namespace, &context);
+    let unmatched_error = OpenAiError::scenario_not_found(&context.endpoint, &context.model);
+    state.log_request(
+        namespace,
+        context,
+        scenario
+            .as_ref()
+            .and_then(|scenario| scenario.scenario_id.clone()),
+    );
+    scenario
+        .map(|scenario| scenario.execute_for_evaluation())
+        .ok_or(unmatched_error)
+}
+
 fn responses_context(
     endpoint: &str,
     request: &ResponsesRequest,
