@@ -9,6 +9,7 @@ use axum::routing::{get, post};
 use axum::{middleware, Router};
 
 use crate::state::AppState;
+use crate::systemone;
 
 pub fn router(require_auth: bool) -> Router<AppState> {
     let router = Router::new()
@@ -21,7 +22,8 @@ pub fn router(require_auth: bool) -> Router<AppState> {
         .route(
             "/chat/completions",
             post(chat_completions::create_chat_completion),
-        );
+        )
+        .route("/systemone", post(systemone::create_systemone));
 
     if require_auth {
         router.layer(middleware::from_fn(auth::require_bearer_auth))

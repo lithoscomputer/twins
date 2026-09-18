@@ -136,20 +136,22 @@ pub fn execute_chat_request(
     )?))
 }
 
-/// Replays a recorded evaluation-model exchange.
+/// Replays a recorded evaluation exchange: the Vercel AI Gateway's
+/// `evaluation` endpoint or TypeSafe's `systemone`.
 ///
-/// The request body is opaque to the engine: the endpoint has no canonical
-/// plan and no deterministic fallback, so an unmatched request is always
-/// `scenario_not_found`. `model` comes from the gateway's `ai-model-id`
-/// header rather than the body.
+/// The request body is opaque to the engine: neither endpoint has a
+/// canonical plan or a deterministic fallback, so an unmatched request is
+/// always `scenario_not_found`. The caller names the scenario `endpoint`
+/// and supplies `model` from wherever its protocol carries it.
 pub fn execute_evaluation_request(
     state: &AppState,
     namespace: &NamespaceKey,
+    endpoint: &str,
     model: &str,
     request_hash: Option<String>,
 ) -> Result<ExecutionOutcome, OpenAiError> {
     let context = RequestContext {
-        endpoint: "evaluation".to_owned(),
+        endpoint: endpoint.to_owned(),
         model: model.to_owned(),
         stream: false,
         metadata: serde_json::Map::new(),

@@ -1,6 +1,6 @@
 use async_stream::stream;
 use axum::body::Body;
-use axum::http::{header, HeaderValue, Response, StatusCode};
+use axum::http::{header, HeaderName, HeaderValue, Response, StatusCode};
 use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
 
@@ -403,7 +403,7 @@ fn chat_chunk(data: &Value) -> String {
 /// its recorded events in order, one chunk per event, so a streaming client
 /// sees the same event granularity the original provider sent.
 pub fn transcript_response(outcome: TranscriptOutcome) -> Response<Body> {
-    match outcome.body {
+    let mut response = match outcome.body {
         TranscriptBody::Json(body) => {
             let content_type = outcome
                 .content_type
@@ -422,7 +422,15 @@ pub fn transcript_response(outcome: TranscriptOutcome) -> Response<Body> {
             });
             build_response(outcome.status, &content_type, body)
         }
+    };
+    // Recorded headers were validated on the way into the queue, so a
+    // failed parse here is unreachable in practice and is skipped quietly.
+    for (name, value) in outcome.headers {
+        if let (Ok(name), Ok(value)) = (HeaderName::try_from(name), HeaderValue::try_from(value)) {
+            response.headers_mut().insert(name, value);
+        }
     }
+    response
 }
 
 fn build_response(status: StatusCode, content_type: &str, body: Body) -> Response<Body> {

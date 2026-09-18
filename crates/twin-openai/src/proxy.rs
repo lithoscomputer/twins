@@ -5,21 +5,22 @@
 //! `/v1/responses` and `/v1/chat/completions` exchanges are derived into
 //! scripted scenarios appended to the recording file. Model discovery and
 //! input-token counts pass through without being recorded. The Vercel AI
-//! Gateway's `/v4/ai/evaluation-model` is forwarded to the same upstream
-//! root and recorded as a transcript only. The client's bearer token names
-//! the generation recording namespace, so each test's calls replay later as
-//! an ordered per-namespace queue.
+//! Gateway's `/v4/ai/evaluation-model` and TypeSafe's `/v1/systemone` are
+//! forwarded to the same upstream root and recorded as transcripts only.
+//! The client's bearer token names the generation recording namespace, so
+//! each test's calls replay later as an ordered per-namespace queue.
 //!
 //! Failed upstream responses and underivable exchanges are passed through
 //! but not recorded. Admin and debug routes are not mounted in this mode.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::body::{Body, Bytes};
 use axum::extract::State;
-use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{middleware, Json, Router};
@@ -33,8 +34,14 @@ use crate::record::{
     derive_script, parse_sse_events, request_hash, ExchangeShape, RecordedEndpoint,
     RecordedExchange,
 };
+use crate::systemone::{REQUEST_ID_HEADER, SYSTEMONE_PATH};
 use twin_core::proxy::forward_stream;
 use twin_core::record::RecordingStore;
+
+/// Upstream response headers passed back to the client and written into a
+/// transcript scenario so replay serves them too. Only headers a client
+/// reads back belong here: TypeSafe's request id fills the verdict id.
+const REPLAYED_RESPONSE_HEADERS: [&str; 1] = [REQUEST_ID_HEADER];
 
 #[derive(Clone)]
 struct ProxyState {
@@ -83,6 +90,7 @@ pub fn router(config: &Config) -> Result<Router> {
             post(proxy_response_input_tokens),
         )
         .route("/v1/chat/completions", post(proxy_chat))
+        .route(SYSTEMONE_PATH, post(proxy_systemone))
         .route(EVALUATION_PATH, post(proxy_evaluation));
     if config.require_auth {
         api = api.layer(middleware::from_fn(auth::require_bearer_auth));
@@ -151,6 +159,23 @@ async fn proxy_evaluation(
     .await
 }
 
+/// TypeSafe hangs systemone off the same `/v1` root as chat, so the path
+/// is forwarded as-is.
+async fn proxy_systemone(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_exchange(
+        state,
+        RecordedEndpoint::SystemOne,
+        SYSTEMONE_PATH,
+        &headers,
+        body,
+    )
+    .await
+}
+
 async fn proxy_exchange(
     state: ProxyState,
     endpoint: RecordedEndpoint,
@@ -182,6 +207,7 @@ async fn proxy_exchange(
         .headers()
         .get(header::CONTENT_TYPE)
         .cloned();
+    let replayed_headers = replayed_headers(upstream_response.headers());
     // The OpenAI Codex deployment answers a streaming request with no
     // content-type header at all, so a missing header falls back to the
     // request's own stream flag rather than the JSON path, which would
@@ -199,6 +225,7 @@ async fn proxy_exchange(
             bearer,
             status,
             content_type,
+            replayed_headers,
             upstream_response,
         )
     } else {
@@ -221,6 +248,7 @@ async fn proxy_exchange(
                                 hash,
                                 status,
                                 content_type.as_ref(),
+                                &replayed_headers,
                                 &exchange,
                             );
                         }
@@ -234,8 +262,19 @@ async fn proxy_exchange(
                 }
             }
         }
-        passthrough_response(status, content_type, Body::from(body))
+        passthrough_response(status, content_type, replayed_headers, Body::from(body))
     }
+}
+
+/// The allowlisted upstream response headers, keyed by lowercase name.
+fn replayed_headers(headers: &HeaderMap) -> BTreeMap<String, String> {
+    REPLAYED_RESPONSE_HEADERS
+        .iter()
+        .filter_map(|name| {
+            let value = headers.get(*name)?.to_str().ok()?;
+            Some(((*name).to_owned(), value.to_owned()))
+        })
+        .collect()
 }
 
 async fn proxy_unrecorded(
@@ -265,7 +304,7 @@ async fn proxy_unrecorded(
         Ok(body) => body,
         Err(error) => return upstream_error_response(&error),
     };
-    passthrough_response(status, content_type, Body::from(body))
+    passthrough_response(status, content_type, BTreeMap::new(), Body::from(body))
 }
 
 fn build_upstream_request(
@@ -301,6 +340,10 @@ fn build_upstream_request(
     request
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "One argument per captured response fact keeps the single call site readable."
+)]
 fn stream_and_record(
     state: &ProxyState,
     shape: Option<ExchangeShape>,
@@ -308,11 +351,13 @@ fn stream_and_record(
     bearer: Option<String>,
     status: StatusCode,
     content_type: Option<HeaderValue>,
+    replayed_headers: BTreeMap<String, String>,
     upstream_response: reqwest::Response,
 ) -> Response {
     let recorder = state.recorder.clone();
     let record_format = state.record_format;
     let recorded_content_type = content_type.clone();
+    let recorded_headers = replayed_headers.clone();
     let body = forward_stream(upstream_response.bytes_stream(), move |buffer| {
         if status == StatusCode::OK {
             if let Some(shape) = shape {
@@ -329,6 +374,7 @@ fn stream_and_record(
                                 hash,
                                 status,
                                 recorded_content_type.as_ref(),
+                                &recorded_headers,
                                 &exchange,
                             ),
                         }
@@ -341,12 +387,13 @@ fn stream_and_record(
         }
     });
 
-    passthrough_response(status, content_type, body)
+    passthrough_response(status, content_type, replayed_headers, body)
 }
 
 fn passthrough_response(
     status: StatusCode,
     content_type: Option<HeaderValue>,
+    headers: BTreeMap<String, String>,
     body: Body,
 ) -> Response {
     let mut response = Response::new(body);
@@ -355,6 +402,11 @@ fn passthrough_response(
         response
             .headers_mut()
             .insert(header::CONTENT_TYPE, content_type);
+    }
+    for (name, value) in headers {
+        if let (Ok(name), Ok(value)) = (HeaderName::try_from(name), HeaderValue::try_from(value)) {
+            response.headers_mut().insert(name, value);
+        }
     }
     response
 }
@@ -404,6 +456,12 @@ impl Recorder {
 
     /// Records a verbatim transcript scenario: the exchange goes into the
     /// file as its raw body or SSE events, matched by the request hash.
+    /// `headers` are the allowlisted upstream response headers replay must
+    /// serve again; an empty map leaves the field out.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "One argument per captured response fact keeps the two call sites readable."
+    )]
     fn record_transcript(
         &self,
         bearer: Option<&str>,
@@ -411,6 +469,7 @@ impl Recorder {
         hash: Option<String>,
         status: StatusCode,
         content_type: Option<&HeaderValue>,
+        headers: &BTreeMap<String, String>,
         exchange: &RecordedExchange,
     ) {
         let mut matcher = Map::new();
@@ -430,6 +489,17 @@ impl Recorder {
             script.insert(
                 "content_type".to_owned(),
                 Value::String(content_type.to_owned()),
+            );
+        }
+        if !headers.is_empty() {
+            script.insert(
+                "headers".to_owned(),
+                Value::Object(
+                    headers
+                        .iter()
+                        .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+                        .collect(),
+                ),
             );
         }
         match exchange {

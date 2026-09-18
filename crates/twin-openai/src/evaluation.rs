@@ -44,7 +44,7 @@ pub async fn create_evaluation(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
 
-    match execute_evaluation_request(&state, &namespace, model, Some(request_hash)) {
+    match execute_evaluation_request(&state, &namespace, "evaluation", model, Some(request_hash)) {
         Ok(outcome) => execution_response(false, outcome).await,
         Err(error) => error.into_response().into_response(),
     }
