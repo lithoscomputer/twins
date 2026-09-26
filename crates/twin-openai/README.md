@@ -124,7 +124,7 @@ curl -X POST http://127.0.0.1:3000/__admin/reset \
 - Non-stream and stream success paths are driven from the same canonical response plan.
 - `/v1/responses`, `/codex/responses`, and `/v1/chat/completions` share the same deterministic fallback behavior.
 - Input-token scenarios use the `responses.input_tokens` matcher endpoint.
-- Structured output supports `json_object` and a documented `json_schema` subset.
+- Structured output supports `json_object` and a `json_schema` subset: an object root with `properties`; string, number, integer, boolean, null, object, and array (with `items`) nodes; `type` lists such as `["string", "null"]`; and `anyOf`. `oneOf` is rejected. The fallback fills a nullable value with its non-null form and an array with `[]`.
 - Scripted failures support OpenAI-shaped application errors, delays, hangs, partial streams, and malformed SSE.
 - An empty `function_call_output.output` is accepted, as the live API accepts it; only a missing field is rejected.
 - Raw scripts support response headers, exact text or byte chunks, per-chunk delays, invalid UTF-8, and response-body connection failures.

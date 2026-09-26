@@ -491,9 +491,8 @@ async fn responses_structured_output_support_is_explicit() {
                     "schema": {
                         "type": "object",
                         "properties": {
-                            "items": {
-                                "type": "array",
-                                "items": { "type": "string" }
+                            "value": {
+                                "oneOf": [{ "type": "string" }, { "type": "integer" }]
                             }
                         }
                     }

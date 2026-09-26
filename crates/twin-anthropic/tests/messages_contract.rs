@@ -166,6 +166,32 @@ async fn structured_output_and_forced_tools() {
 }
 
 #[tokio::test]
+async fn structured_output_accepts_arrays_and_nullable_values() {
+    let server = spawn(config()).await;
+    let mut req = request(false);
+    req["output_config"] = json!({"format":{"type":"json_schema","schema":{
+        "type":"object",
+        "properties":{
+            "action":{"anyOf":[
+                {"type":"object","properties":{
+                    "method":{"type":"string","enum":["click","fill"]},
+                    "arguments":{"type":"array","items":{"type":"string"}}
+                }},
+                {"type":"null"}
+            ]},
+            "reason":{"type":["string","null"]},
+            "twoStep":{"type":"boolean"}
+        }
+    }}});
+    let body = server.message("a", &req).await;
+    let parsed: Value = serde_json::from_str(text(&body)).expect("structured JSON");
+    assert_eq!(parsed["action"]["method"], "click");
+    assert_eq!(parsed["action"]["arguments"], json!([]));
+    assert!(parsed["reason"].is_string());
+    assert_eq!(parsed["twoStep"], true);
+}
+
+#[tokio::test]
 async fn validation_rejects_malformed_requests() {
     let server = spawn(config()).await;
     for (field, value) in [
@@ -179,6 +205,14 @@ async fn validation_rejects_malformed_requests() {
         (
             "output_config",
             json!({"format":{"type":"json_schema","schema":{"type":"array"}}}),
+        ),
+        (
+            "output_config",
+            json!({"format":{"type":"json_schema","schema":{"type":"object","properties":{"values":{"type":"array"}}}}}),
+        ),
+        (
+            "output_config",
+            json!({"format":{"type":"json_schema","schema":{"type":"object","properties":{"value":{"oneOf":[{"type":"string"}]}}}}}),
         ),
     ] {
         let mut req = request(false);

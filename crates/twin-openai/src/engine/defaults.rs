@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use super::plan::{ResponsePlan, TokenUsage};
-use crate::openai::models::{normalize_whitespace, ResponseFormat, ResponsesRequest};
+use crate::openai::models::{normalize_whitespace, schema_kinds, ResponseFormat, ResponsesRequest};
 
 pub fn build_default_response_plan(
     response_number: u64,
@@ -83,33 +83,54 @@ fn generate_json_from_schema(schema: &Value, response_text: &str) -> Value {
     let schema = schema.get("schema").unwrap_or(schema);
 
     match schema.get("type").and_then(Value::as_str) {
-        Some("object") => {
-            let properties = schema
-                .get("properties")
-                .and_then(Value::as_object)
-                .cloned()
-                .unwrap_or_default();
-
-            let mut object = serde_json::Map::new();
-            for (name, property_schema) in properties {
-                object.insert(
-                    name,
-                    primitive_value_for_schema(&property_schema, response_text),
-                );
-            }
-            Value::Object(object)
-        }
+        Some("object") => object_from_properties(schema, response_text),
         _ => json!({ "message": response_text }),
     }
 }
 
+fn object_from_properties(schema: &Value, response_text: &str) -> Value {
+    let properties = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut object = serde_json::Map::new();
+    for (name, property_schema) in properties {
+        object.insert(
+            name,
+            primitive_value_for_schema(&property_schema, response_text),
+        );
+    }
+    Value::Object(object)
+}
+
 fn primitive_value_for_schema(schema: &Value, response_text: &str) -> Value {
-    match schema.get("type").and_then(Value::as_str) {
+    // A nullable value takes its non-null form, so fallbacks show the
+    // populated shape.
+    if let Some(branches) = schema.get("anyOf").and_then(Value::as_array) {
+        return branches
+            .iter()
+            .find(|branch| !is_null_schema(branch))
+            .map_or(Value::Null, |branch| {
+                primitive_value_for_schema(branch, response_text)
+            });
+    }
+    let kind = schema_kinds(schema)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|kind| *kind != "null");
+    match kind {
         Some("string") => Value::String(response_text.to_owned()),
         Some("integer") => json!(1),
         Some("number") => json!(1.0),
         Some("boolean") => json!(true),
-        Some("object") => generate_json_from_schema(schema, response_text),
+        Some("array") => json!([]),
+        Some("object") => object_from_properties(schema, response_text),
         _ => Value::Null,
     }
+}
+
+fn is_null_schema(schema: &Value) -> bool {
+    schema_kinds(schema).is_some_and(|kinds| kinds == ["null"])
 }

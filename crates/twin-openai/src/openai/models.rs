@@ -547,19 +547,7 @@ impl OpenAiError {
 fn validate_json_schema_subset(schema: &Value) -> Result<(), OpenAiError> {
     let schema = schema.get("schema").unwrap_or(schema);
     match schema.get("type").and_then(Value::as_str) {
-        Some("object") => {
-            let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
-                return Err(OpenAiError::invalid_request(
-                    "text.format.json_schema",
-                    "json_schema object types must define properties",
-                ));
-            };
-
-            for property in properties.values() {
-                validate_schema_node(property)?;
-            }
-            Ok(())
-        }
+        Some("object") => validate_object_properties(schema),
         _ => Err(OpenAiError::invalid_request(
             "text.format.json_schema",
             "unsupported json_schema root type",
@@ -567,21 +555,69 @@ fn validate_json_schema_subset(schema: &Value) -> Result<(), OpenAiError> {
     }
 }
 
-fn validate_schema_node(node: &Value) -> Result<(), OpenAiError> {
-    if node.get("items").is_some() || node.get("anyOf").is_some() || node.get("oneOf").is_some() {
+fn validate_object_properties(schema: &Value) -> Result<(), OpenAiError> {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return Err(OpenAiError::invalid_request(
             "text.format.json_schema",
-            "unsupported json_schema construct",
+            "json_schema object types must define properties",
         ));
+    };
+
+    for property in properties.values() {
+        validate_schema_node(property)?;
+    }
+    Ok(())
+}
+
+fn validate_schema_node(node: &Value) -> Result<(), OpenAiError> {
+    let unsupported_construct = || {
+        OpenAiError::invalid_request(
+            "text.format.json_schema",
+            "unsupported json_schema construct",
+        )
+    };
+    if node.get("oneOf").is_some() {
+        return Err(unsupported_construct());
+    }
+    if let Some(branches) = node.get("anyOf") {
+        let branches = branches
+            .as_array()
+            .filter(|branches| !branches.is_empty())
+            .ok_or_else(unsupported_construct)?;
+        for branch in branches {
+            validate_schema_node(branch)?;
+        }
+        return Ok(());
     }
 
-    match node.get("type").and_then(Value::as_str) {
-        Some("string" | "number" | "integer" | "boolean") => Ok(()),
-        Some("object") => validate_json_schema_subset(node),
-        _ => Err(OpenAiError::invalid_request(
+    let unsupported_type = || {
+        OpenAiError::invalid_request(
             "text.format.json_schema",
             "unsupported json_schema property type",
-        )),
+        )
+    };
+    let kinds = schema_kinds(node)
+        .filter(|kinds| !kinds.is_empty())
+        .ok_or_else(unsupported_type)?;
+    for kind in kinds {
+        match kind {
+            "string" | "number" | "integer" | "boolean" | "null" => {}
+            "object" => validate_object_properties(node)?,
+            "array" => validate_schema_node(node.get("items").ok_or_else(unsupported_construct)?)?,
+            _ => return Err(unsupported_type()),
+        }
+    }
+    Ok(())
+}
+
+/// The `type` names of a schema node: one name, a non-empty list of names
+/// (`["string", "null"]`), or none. `None` means `type` is malformed.
+pub fn schema_kinds(node: &Value) -> Option<Vec<&str>> {
+    match node.get("type") {
+        None => Some(Vec::new()),
+        Some(Value::String(kind)) => Some(vec![kind.as_str()]),
+        Some(Value::Array(kinds)) if !kinds.is_empty() => kinds.iter().map(Value::as_str).collect(),
+        Some(_) => None,
     }
 }
 
