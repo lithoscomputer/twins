@@ -95,7 +95,7 @@ Example tool response:
 
 A tool-only script emits no fabricated text. Forced tool choice (`any` or `tool`) requires a matching scripted tool response. `none` rejects a script that tries to return a tool call. The fallback does not infer tool calls from a prompt.
 
-`output_config.format` supports a documented JSON-schema subset. `lithos-llm` implements its free-form JSON-object option with a system instruction; use `structured_output` to script that result. The twin does not interpret arbitrary instructions as generation rules.
+`output_config.format` supports a JSON-schema subset: an object root; string, integer, number, boolean, null, object, and array (with `items`) nodes; `type` lists such as `["string", "null"]`; `enum`, `const`, and `anyOf`. `oneOf` and `$ref` are rejected. The fallback fills a nullable value with its non-null form and an array with `[]`. `lithos-llm` implements its free-form JSON-object option with a system instruction; use `structured_output` to script that result. The twin does not interpret arbitrary instructions as generation rules.
 
 ## Failure and transport scripts
 

@@ -347,38 +347,67 @@ fn validate_content(content: &Value, system: bool) -> Result<(), AnthropicError>
 
 pub fn validate_schema(schema: &Value, root: bool) -> Result<(), AnthropicError> {
     let invalid = || {
-        AnthropicError::invalid_request("schema", "supported subset: object roots, nested objects, string, integer, number, boolean, enum, const")
+        AnthropicError::invalid_request("schema", "supported subset: object roots, nested objects, arrays with items, string, integer, number, boolean, null, enum, const, anyOf")
     };
-    if !schema.is_object()
-        || schema.get("anyOf").is_some()
-        || schema.get("oneOf").is_some()
-        || schema.get("$ref").is_some()
-    {
+    if !schema.is_object() || schema.get("oneOf").is_some() || schema.get("$ref").is_some() {
         return Err(invalid());
     }
-    let kind = schema["type"].as_str();
-    if root && kind != Some("object") {
+    if let Some(branches) = schema.get("anyOf") {
+        let branches = branches
+            .as_array()
+            .filter(|branches| !branches.is_empty())
+            .ok_or_else(invalid)?;
+        if root {
+            return Err(invalid());
+        }
+        for branch in branches {
+            validate_schema(branch, false)?;
+        }
+        return Ok(());
+    }
+    let kinds = schema_kinds(schema).ok_or_else(invalid)?;
+    if root && kinds != ["object"] {
         return Err(invalid());
     }
-    match kind {
-        Some("object") => {
-            if let Some(properties) = schema.get("properties") {
-                let properties = properties.as_object().ok_or_else(invalid)?;
-                for child in properties.values() {
-                    validate_schema(child, false)?;
+    if kinds.is_empty() {
+        let literal = schema.get("const").is_some()
+            || schema
+                .get("enum")
+                .and_then(Value::as_array)
+                .is_some_and(|v| !v.is_empty());
+        return if literal { Ok(()) } else { Err(invalid()) };
+    }
+    for kind in kinds {
+        match kind {
+            "object" => {
+                if let Some(properties) = schema.get("properties") {
+                    let properties = properties.as_object().ok_or_else(invalid)?;
+                    for child in properties.values() {
+                        validate_schema(child, false)?;
+                    }
                 }
             }
+            "array" => validate_schema(schema.get("items").ok_or_else(invalid)?, false)?,
+            "string" | "integer" | "number" | "boolean" | "null" => {}
+            _ => return Err(invalid()),
         }
-        Some("string" | "integer" | "number" | "boolean") => {}
-        _ if !root
-            && (schema.get("const").is_some()
-                || schema
-                    .get("enum")
-                    .and_then(Value::as_array)
-                    .is_some_and(|v| !v.is_empty())) => {}
-        _ => return Err(invalid()),
     }
     Ok(())
+}
+
+/// The `type` names of a schema node: one name, a non-empty list of names
+/// (`["string", "null"]`), or none. `None` means `type` is malformed.
+fn schema_kinds(schema: &Value) -> Option<Vec<&str>> {
+    match schema.get("type") {
+        None => Some(Vec::new()),
+        Some(Value::String(kind)) => Some(vec![kind.as_str()]),
+        Some(Value::Array(kinds)) if !kinds.is_empty() => kinds.iter().map(Value::as_str).collect(),
+        Some(_) => None,
+    }
+}
+
+fn is_null_schema(schema: &Value) -> bool {
+    schema_kinds(schema).is_some_and(|kinds| kinds == ["null"])
 }
 
 pub fn generate_json(schema: &Value, text: &str) -> Value {
@@ -392,7 +421,22 @@ pub fn generate_json(schema: &Value, text: &str) -> Value {
     {
         return value.clone();
     }
-    match schema["type"].as_str() {
+    // A nullable value takes its non-null form, so fallbacks show the
+    // populated shape.
+    if let Some(branches) = schema.get("anyOf").and_then(Value::as_array) {
+        return branches
+            .iter()
+            .find(|branch| !is_null_schema(branch))
+            .map_or(Value::Null, |branch| generate_json(branch, text));
+    }
+    if is_null_schema(schema) {
+        return Value::Null;
+    }
+    let kind = schema_kinds(schema)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|kind| *kind != "null");
+    match kind {
         Some("object") => Value::Object(
             schema["properties"]
                 .as_object()
@@ -404,6 +448,7 @@ pub fn generate_json(schema: &Value, text: &str) -> Value {
                 })
                 .unwrap_or_default(),
         ),
+        Some("array") => json!([]),
         Some("integer") => json!(1),
         Some("number") => json!(1.0),
         Some("boolean") => json!(true),

@@ -333,6 +333,91 @@ async fn chat_completions_supports_scripted_tool_call_and_json_schema() {
 }
 
 #[tokio::test]
+async fn chat_completions_accept_arrays_and_nullable_values_in_json_schema() {
+    let server = common::spawn_server().await.expect("server should start");
+
+    let structured = server
+        .post_chat(json!({
+            "model": "gpt-test",
+            "messages": [{ "role": "user", "content": "act please" }],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "Act",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "action": {
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "elementId": { "type": "string" },
+                                            "arguments": {
+                                                "type": "array",
+                                                "items": { "type": "string" }
+                                            }
+                                        }
+                                    },
+                                    { "type": "null" }
+                                ]
+                            },
+                            "reason": { "type": ["string", "null"] },
+                            "twoStep": { "type": "boolean" }
+                        }
+                    },
+                    "strict": true
+                }
+            },
+            "stream": false
+        }))
+        .await
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+
+    let content = structured["choices"][0]["message"]["content"]
+        .as_str()
+        .expect("content");
+    let parsed: serde_json::Value = serde_json::from_str(content).expect("structured JSON");
+    assert_eq!(
+        parsed,
+        json!({
+            "action": {
+                "elementId": "deterministic: act please",
+                "arguments": []
+            },
+            "reason": "deterministic: act please",
+            "twoStep": true
+        })
+    );
+}
+
+#[tokio::test]
+async fn chat_completions_reject_arrays_without_items_in_json_schema() {
+    let server = common::spawn_server().await.expect("server should start");
+
+    let response = server
+        .post_chat(json!({
+            "model": "gpt-test",
+            "messages": [{ "role": "user", "content": "bad schema" }],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "bad_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": { "values": { "type": "array" } }
+                    }
+                }
+            }
+        }))
+        .await;
+
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
 async fn chat_completions_stream_preserves_reasoning_transcript() {
     let server = common::spawn_server().await.expect("server should start");
 
