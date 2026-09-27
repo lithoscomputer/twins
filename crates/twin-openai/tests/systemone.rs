@@ -447,3 +447,60 @@ fn a_transcript_scenario_with_an_invalid_header_is_rejected() {
         .enqueue_scenarios(&NamespaceKey::Global, envelope.scenarios)
         .is_err());
 }
+
+#[tokio::test]
+async fn a_scripted_answer_matches_the_request_body_and_the_log_records_it() {
+    let twin = spawn(common::test_config()).await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("client should build");
+    let queued = client
+        .post(format!("{twin}/__admin/scenarios"))
+        .bearer_auth(BEARER)
+        .json(&json!({
+            "scenarios": [{
+                "matcher": { "endpoint": "systemone", "input_contains": "Scripted ticket." },
+                "script": {
+                    "kind": "transcript",
+                    "status": 200,
+                    "content_type": "application/json",
+                    "body": live_answer()
+                }
+            }]
+        }))
+        .send()
+        .await
+        .expect("request should complete");
+    assert_eq!(queued.status(), 200);
+
+    let other = post_systemone(&twin, BEARER, &systemone_request("Other ticket.")).await;
+    assert_eq!(other.status(), 400);
+    let answered = post_systemone(&twin, BEARER, &systemone_request("Scripted ticket.")).await;
+    assert_eq!(answered.status(), 200);
+    let body: Value = answered.json().await.expect("body should parse");
+    assert_eq!(body, live_answer());
+
+    let log: Value = client
+        .get(format!("{twin}/__admin/requests"))
+        .bearer_auth(BEARER)
+        .send()
+        .await
+        .expect("request should complete")
+        .json()
+        .await
+        .expect("log should parse");
+    let inputs: Vec<&str> = log["requests"]
+        .as_array()
+        .expect("the log lists requests")
+        .iter()
+        .map(|request| {
+            request["input_text"]
+                .as_str()
+                .expect("input text is a string")
+        })
+        .collect();
+    assert_eq!(inputs.len(), 2);
+    assert!(inputs[0].contains("Other ticket."), "{inputs:?}");
+    assert!(inputs[1].contains("Scripted ticket."), "{inputs:?}");
+}

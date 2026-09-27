@@ -6,6 +6,8 @@
 //! recorded scenarios only, matched by request hash, and has no
 //! deterministic fallback. A recorded `x-typesafe-request-id` header is
 //! replayed with the body, because clients read it back as the verdict id.
+//! The request body is the request's input text, so a test can match it
+//! with `input_contains` and read what the client sent in the request log.
 
 use axum::body::Bytes;
 use axum::extract::State;
@@ -59,6 +61,7 @@ pub async fn create_systemone(
         &namespace,
         SCENARIO_ENDPOINT,
         &model,
+        String::from_utf8_lossy(&body).into_owned(),
         Some(request_hash),
     ) {
         Ok(outcome) => execution_response(false, outcome).await,

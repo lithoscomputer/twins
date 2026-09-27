@@ -25,7 +25,10 @@ with `scenario_not_found`.
 
 `POST /v1/systemone` is TypeSafe AI's evaluation API. It replays recorded
 `systemone` scenarios the same way, matched by `request_hash`, together with
-the recorded `x-typesafe-request-id` response header.
+the recorded `x-typesafe-request-id` response header. A scenario without a
+`request_hash` matches any systemone request, in queue order. The request
+body is the request's input text: `input_contains` matches it, and the
+request log records it.
 
 `GET /v1/models` returns one stable `gpt-test` model entry. Generation routes
 continue to accept any non-empty model ID. `POST /v1/responses/input_tokens`
