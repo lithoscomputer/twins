@@ -141,13 +141,15 @@ pub fn execute_chat_request(
 ///
 /// The request body is opaque to the engine: neither endpoint has a
 /// canonical plan or a deterministic fallback, so an unmatched request is
-/// always `scenario_not_found`. The caller names the scenario `endpoint`
-/// and supplies `model` from wherever its protocol carries it.
+/// always `scenario_not_found`. The caller names the scenario `endpoint`,
+/// supplies `model` from wherever its protocol carries it, and chooses the
+/// `input_text` that `input_contains` matches and the request log records.
 pub fn execute_evaluation_request(
     state: &AppState,
     namespace: &NamespaceKey,
     endpoint: &str,
     model: &str,
+    input_text: String,
     request_hash: Option<String>,
 ) -> Result<ExecutionOutcome, OpenAiError> {
     let context = RequestContext {
@@ -155,7 +157,7 @@ pub fn execute_evaluation_request(
         model: model.to_owned(),
         stream: false,
         metadata: serde_json::Map::new(),
-        input_text: String::new(),
+        input_text,
         instructions_text: String::new(),
         request_hash,
     };
