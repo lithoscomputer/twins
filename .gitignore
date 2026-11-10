@@ -1,3 +1,6 @@
 /target/
 .DS_Store
 /crates/twin-openai/fixtures/raw/
+
+# AI-generated artifacts stay local.
+/.ai/
